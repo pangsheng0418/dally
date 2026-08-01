@@ -400,7 +400,7 @@ export default function App() {
           <div className="flex items-center gap-2">
             <button 
               onClick={() => setActiveModal('clear_confirm')}
-              className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-rose-950/30 text-slate-300 hover:text-rose-400 border border-slate-700 hover:border-rose-900/50 text-sm font-semibold rounded-xl transition-all cursor-pointer"
+              className="flex items-center justify-center gap-1.5 sm:gap-2 p-2.5 sm:px-4 sm:py-2 bg-slate-800 hover:bg-rose-950/30 text-slate-300 hover:text-rose-400 border border-slate-700 hover:border-rose-900/50 text-sm font-semibold rounded-xl transition-all cursor-pointer"
               title="清除所有資料或還原為預設範例"
             >
               <RotateCcw className="w-4 h-4" />
@@ -409,10 +409,11 @@ export default function App() {
 
             <button 
               onClick={() => setActiveModal('excel')}
-              className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-slate-600 text-sm font-semibold rounded-xl transition-all cursor-pointer"
+              className="flex items-center justify-center gap-1.5 sm:gap-2 p-2.5 sm:px-4 sm:py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-slate-600 text-sm font-semibold rounded-xl transition-all cursor-pointer"
+              title="Excel 批次管理"
             >
               <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-              Excel 批次管理
+              <span className="hidden sm:inline">Excel 批次管理</span>
             </button>
           </div>
         </div>
@@ -428,42 +429,42 @@ export default function App() {
             </div>
             <input 
               type="text" 
-              placeholder="搜尋車牌 (如 ABC-1234)、住戶代號 (如 A棟)、成員姓名..."
+              placeholder="搜尋車牌、住戶代號、成員姓名..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-12 pr-28 py-3.5 bg-slate-900/60 hover:bg-slate-900/80 focus:bg-slate-900 border border-slate-800 focus:border-indigo-500 rounded-2xl text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all text-base shadow-inner"
+              className="w-full pl-10 pr-24 py-2.5 sm:pl-12 sm:pr-28 sm:py-3.5 bg-slate-900/60 hover:bg-slate-900/80 focus:bg-slate-900 border border-slate-800 focus:border-indigo-500 rounded-2xl text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all text-sm sm:text-base shadow-inner"
             />
             
-            <div className="absolute right-2 flex items-center gap-1.5">
+            <div className="absolute right-2 flex items-center gap-1">
               {searchQuery && (
                 <button 
                   onClick={() => setSearchQuery('')}
                   className="p-1.5 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800 transition-all"
                   title="清除搜尋"
                 >
-                  <X className="w-4 h-4" />
+                  <X className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                 </button>
               )}
               
               <button 
                 onClick={handleVoiceSearch}
-                className={`p-2 rounded-xl transition-all cursor-pointer ${
+                className={`p-1.5 sm:p-2 rounded-xl transition-all cursor-pointer ${
                   isRecording 
                     ? 'bg-rose-600 hover:bg-rose-500 text-white pulse-animation' 
                     : 'bg-indigo-950/60 hover:bg-indigo-900/80 text-indigo-400 border border-indigo-500/30'
                 }`}
                 title={isRecording ? '停止錄音' : '語音搜尋'}
               >
-                <Mic className="w-5 h-5" />
+                <Mic className="w-4 h-4 sm:w-5 h-5" />
               </button>
             </div>
           </div>
 
           {/* 語音錄製中動態波形 */}
           {isRecording && (
-            <div className="mt-3 flex items-center justify-center gap-2 p-3 bg-rose-950/30 border border-rose-900/40 rounded-xl animate-pulse">
-              <span className="text-xs text-rose-300 font-semibold tracking-wider">正在聆聽語音...</span>
-              <div className="flex items-end gap-0.5 h-4">
+            <div className="mt-2.5 flex items-center justify-center gap-1.5 p-2 sm:p-3 bg-rose-950/30 border border-rose-900/40 rounded-xl animate-pulse">
+              <span className="text-[11px] sm:text-xs text-rose-300 font-semibold tracking-wider">正在聆聽語音...</span>
+              <div className="flex items-end gap-0.5 h-3.5">
                 <div className="w-0.75 bg-rose-400 rounded-full h-full wave-bar"></div>
                 <div className="w-0.75 bg-rose-400 rounded-full h-full wave-bar"></div>
                 <div className="w-0.75 bg-rose-400 rounded-full h-full wave-bar"></div>
@@ -475,37 +476,37 @@ export default function App() {
         </section>
 
         {/* 快速統計面板 */}
-        <section className="grid grid-cols-3 gap-4 mb-8">
-          <div className="glass-effect p-4 rounded-2xl flex items-center justify-between shadow-lg relative overflow-hidden group">
+        <section className="grid grid-cols-3 gap-2 sm:gap-4 mb-6 sm:mb-8">
+          <div className="glass-effect p-3 sm:p-4 rounded-2xl flex items-center justify-between shadow-lg relative overflow-hidden group">
             <div className="absolute right-0 top-0 w-24 h-24 bg-indigo-500/5 rounded-full blur-xl group-hover:bg-indigo-500/10 transition-all duration-500"></div>
             <div>
-              <p className="text-xs text-slate-400 font-medium">住戶總數</p>
-              <h3 className="text-2xl sm:text-3xl font-extrabold text-white mt-1">{totalResidents} <span className="text-xs text-slate-500 font-normal">戶</span></h3>
+              <p className="text-[10px] sm:text-xs text-slate-400 font-medium">住戶總數</p>
+              <h3 className="text-lg sm:text-3xl font-extrabold text-white mt-0.5 sm:mt-1">{totalResidents} <span className="text-[9px] sm:text-xs text-slate-500 font-normal">戶</span></h3>
             </div>
-            <div className="p-3 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-500/20">
-              <Building2 className="w-5 h-5" />
+            <div className="p-1.5 sm:p-3 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-500/20">
+              <Building2 className="w-4 h-4 sm:w-5 h-5" />
             </div>
           </div>
 
-          <div className="glass-effect p-4 rounded-2xl flex items-center justify-between shadow-lg relative overflow-hidden group">
+          <div className="glass-effect p-3 sm:p-4 rounded-2xl flex items-center justify-between shadow-lg relative overflow-hidden group">
             <div className="absolute right-0 top-0 w-24 h-24 bg-emerald-500/5 rounded-full blur-xl group-hover:bg-emerald-500/10 transition-all duration-500"></div>
             <div>
-              <p className="text-xs text-slate-400 font-medium">住戶成員</p>
-              <h3 className="text-2xl sm:text-3xl font-extrabold text-white mt-1">{totalMembers} <span className="text-xs text-slate-500 font-normal">人</span></h3>
+              <p className="text-[10px] sm:text-xs text-slate-400 font-medium">住戶成員</p>
+              <h3 className="text-lg sm:text-3xl font-extrabold text-white mt-0.5 sm:mt-1">{totalMembers} <span className="text-[9px] sm:text-xs text-slate-500 font-normal">人</span></h3>
             </div>
-            <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
-              <Users className="w-5 h-5" />
+            <div className="p-1.5 sm:p-3 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
+              <Users className="w-4 h-4 sm:w-5 h-5" />
             </div>
           </div>
 
-          <div className="glass-effect p-4 rounded-2xl flex items-center justify-between shadow-lg relative overflow-hidden group">
+          <div className="glass-effect p-3 sm:p-4 rounded-2xl flex items-center justify-between shadow-lg relative overflow-hidden group">
             <div className="absolute right-0 top-0 w-24 h-24 bg-sky-500/5 rounded-full blur-xl group-hover:bg-sky-500/10 transition-all duration-500"></div>
             <div>
-              <p className="text-xs text-slate-400 font-medium">登記車牌</p>
-              <h3 className="text-2xl sm:text-3xl font-extrabold text-white mt-1">{totalPlates} <span className="text-xs text-slate-500 font-normal">筆</span></h3>
+              <p className="text-[10px] sm:text-xs text-slate-400 font-medium">登記車牌</p>
+              <h3 className="text-lg sm:text-3xl font-extrabold text-white mt-0.5 sm:mt-1">{totalPlates} <span className="text-[9px] sm:text-xs text-slate-500 font-normal">筆</span></h3>
             </div>
-            <div className="p-3 bg-sky-500/10 text-sky-400 rounded-xl border border-sky-500/20">
-              <CreditCard className="w-5 h-5" />
+            <div className="p-1.5 sm:p-3 bg-sky-500/10 text-sky-400 rounded-xl border border-sky-500/20">
+              <CreditCard className="w-4 h-4 sm:w-5 h-5" />
             </div>
           </div>
         </section>
@@ -534,26 +535,26 @@ export default function App() {
             {filteredData.map((resident) => (
               <div 
                 key={resident.id} 
-                className="glass-card p-5 rounded-2xl flex flex-col justify-between relative overflow-hidden group shadow-lg"
+                className="glass-card p-4 sm:p-5 rounded-2xl flex flex-col justify-between relative overflow-hidden group shadow-lg"
               >
                 <div>
                   {/* 住戶 ID 與操作選單 */}
                   <div className="flex justify-between items-start gap-4 mb-4">
-                    <span className="bg-indigo-500/10 text-indigo-300 text-sm font-bold px-3 py-1 rounded-xl border border-indigo-500/20 shadow-sm">
+                    <span className="bg-indigo-500/10 text-indigo-300 text-xs sm:text-sm font-bold px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-xl border border-indigo-500/20 shadow-sm">
                       {resident.id}
                     </span>
                     
-                    <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-1 opacity-100 sm:opacity-80 sm:group-hover:opacity-100 transition-opacity">
                       <button 
                         onClick={() => openEditModal(resident)}
-                        className="p-1.5 text-slate-400 hover:text-indigo-400 hover:bg-indigo-950/40 rounded-lg transition-all border border-transparent hover:border-indigo-500/20 cursor-pointer"
+                        className="p-2 text-slate-400 hover:text-indigo-400 hover:bg-indigo-950/40 rounded-lg transition-all border border-transparent hover:border-indigo-500/20 cursor-pointer"
                         title="編輯住戶"
                       >
                         <Edit2 className="w-4 h-4" />
                       </button>
                       <button 
                         onClick={() => openDeleteConfirm(resident)}
-                        className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 rounded-lg transition-all border border-transparent hover:border-rose-500/20 cursor-pointer"
+                        className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 rounded-lg transition-all border border-transparent hover:border-rose-500/20 cursor-pointer"
                         title="刪除住戶"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -571,7 +572,7 @@ export default function App() {
                         resident.members.map((member, i) => (
                           <span 
                             key={i}
-                            className="bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-xs px-2.5 py-1 rounded-lg border border-slate-700/50 shadow-inner flex items-center gap-1"
+                            className="bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-[11px] sm:text-xs px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg border border-slate-700/50 shadow-inner flex items-center gap-1"
                           >
                             <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
                             {member}
@@ -593,7 +594,7 @@ export default function App() {
                         resident.licensePlates.map((plate, i) => (
                           <span 
                             key={i}
-                            className="bg-slate-900 border-2 border-slate-700 text-slate-200 font-mono text-xs font-black tracking-wider px-2.5 py-1 rounded-md shadow-inner flex items-center gap-1 hover:border-indigo-500 hover:text-white transition-all cursor-default"
+                            className="bg-slate-900 border-2 border-slate-700 text-slate-200 font-mono text-[11px] sm:text-xs font-black tracking-wider px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-md shadow-inner flex items-center gap-1 hover:border-indigo-500 hover:text-white transition-all cursor-default"
                           >
                             <div className="w-2 h-2 rounded-full bg-indigo-500 shadow-[0_0_5px_rgba(99,102,241,1)]"></div>
                             {plate}
