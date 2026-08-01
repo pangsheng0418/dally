@@ -99,40 +99,60 @@ export function normalizeVoiceInput(text) {
 }
 
 /**
- * 三向模糊搜尋過濾
+ * 三向超模糊搜尋過濾（優化語音輸入容錯率）
  */
 export function filterResidents(residents, query) {
   if (!query) return residents;
   
   const q = query.trim().toLowerCase();
-  // 去除搜尋詞中的所有非英數字元（用於車牌比對）
-  const qCleaned = q.replace(/[^a-z0-9\u4e00-\u9fa5]/gi, '');
   
+  // 超模糊清理函數：移除所有空格、減號、底線，以及常見的住戶單位字詞「棟、樓、之、f、F」
+  const cleanForFuzzy = (str) => {
+    if (!str) return '';
+    return str
+      .toLowerCase()
+      .replace(/[\s\-_棟樓之fF]/g, '') // 移除空格、底線、減號、以及單位字元
+      .replace(/[^a-z0-9\u4e00-\u9fa5]/gi, ''); // 只保留英數與中文字元
+  };
+
+  const qFuzzy = cleanForFuzzy(q);
+
   return residents.filter(item => {
     // 1. 比對住戶代號
-    if (item.id.toLowerCase().includes(q)) return true;
+    const itemIdLower = item.id.toLowerCase();
+    if (itemIdLower.includes(q)) return true;
+    
+    const itemIdFuzzy = cleanForFuzzy(item.id);
+    if (qFuzzy && itemIdFuzzy.includes(qFuzzy)) return true;
     
     // 2. 比對成員姓名
-    const matchMember = item.members.some(member => 
-      member.toLowerCase().includes(q)
-    );
+    const matchMember = item.members.some(member => {
+      const memberLower = member.toLowerCase();
+      if (memberLower.includes(q)) return true;
+      
+      const memberFuzzy = cleanForFuzzy(member);
+      return qFuzzy && memberFuzzy.includes(qFuzzy);
+    });
     if (matchMember) return true;
     
-    // 3. 比對車牌號碼 (包含移除 dash 符號後的模糊比對)
+    // 3. 比對車牌號碼 (移除減號後的模糊比對)
     const matchPlate = item.licensePlates.some(plate => {
       const plateLower = plate.toLowerCase();
       if (plateLower.includes(q)) return true;
       
-      // 去除車牌中的所有非英數字元
-      const plateCleaned = plateLower.replace(/[^a-z0-9]/g, '');
-      if (qCleaned && plateCleaned.includes(qCleaned)) return true;
-      
-      return false;
+      const plateFuzzy = cleanForFuzzy(plate);
+      return qFuzzy && plateFuzzy.includes(qFuzzy);
     });
     if (matchPlate) return true;
     
     // 4. 比對備註
-    if (item.notes && item.notes.toLowerCase().includes(q)) return true;
+    if (item.notes) {
+      const notesLower = item.notes.toLowerCase();
+      if (notesLower.includes(q)) return true;
+      
+      const notesFuzzy = cleanForFuzzy(item.notes);
+      return qFuzzy && notesFuzzy.includes(qFuzzy);
+    }
     
     return false;
   });

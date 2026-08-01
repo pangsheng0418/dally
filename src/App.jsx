@@ -33,8 +33,18 @@ import {
 export default function App() {
   // 狀態管理
   const [residents, setResidents] = useState(() => {
-    const saved = localStorage.getItem('residents_data');
-    return saved ? JSON.parse(saved) : initialResidents;
+    try {
+      const saved = localStorage.getItem('residents_data');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.error('Failed to parse residents data from localStorage', e);
+    }
+    return [];
   });
   
   const [searchQuery, setSearchQuery] = useState('');
@@ -129,16 +139,7 @@ export default function App() {
     recognition.start();
   };
 
-  // 開啟新增 Modal
-  const openAddModal = () => {
-    setFormId('');
-    setFormMembers(['']);
-    setFormPlates(['']);
-    setFormNotes('');
-    setFormErrors({});
-    setSelectedResident(null);
-    setActiveModal('add');
-  };
+
 
   // 開啟編輯 Modal
   const openEditModal = (resident) => {
@@ -413,14 +414,6 @@ export default function App() {
               <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
               Excel 批次管理
             </button>
-            
-            <button 
-              onClick={openAddModal}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-xl shadow-lg shadow-indigo-600/20 hover:shadow-indigo-600/30 transition-all border border-indigo-500 hover:border-indigo-400 cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              單筆新增住戶
-            </button>
           </div>
         </div>
       </header>
@@ -629,7 +622,7 @@ export default function App() {
           <section className="glass-effect p-12 text-center rounded-3xl max-w-lg mx-auto shadow-xl">
             <AlertCircle className="w-12 h-12 text-slate-600 mx-auto mb-4" />
             <h3 className="text-lg font-bold text-slate-300">查無相符資料</h3>
-            <p className="text-xs text-slate-500 mt-2">請更換關鍵字重新搜尋，或點擊「單筆新增住戶」手動新增對照資料。</p>
+            <p className="text-xs text-slate-500 mt-2">請更換關鍵字重新搜尋，或點擊右上角「Excel 批次管理」匯入資料。</p>
             {searchQuery && (
               <button 
                 onClick={() => setSearchQuery('')}
@@ -642,15 +635,15 @@ export default function App() {
         )}
       </main>
 
-      {/* CRUD 新增 / 編輯 Modal */}
-      {(activeModal === 'add' || activeModal === 'edit') && (
+      {/* CRUD 編輯 Modal */}
+      {activeModal === 'edit' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
           <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-xl shadow-2xl overflow-hidden animate-zoom-in">
             {/* Modal Header */}
             <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/40">
               <h3 className="text-lg font-bold text-white flex items-center gap-2">
                 <Building2 className="w-5 h-5 text-indigo-400" />
-                {activeModal === 'add' ? '新增住戶對照資料' : `編輯住戶資料：${selectedResident?.id}`}
+                編輯住戶資料：{selectedResident?.id}
               </h3>
               <button onClick={() => setActiveModal(null)} className="p-1 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800">
                 <X className="w-5 h-5" />
