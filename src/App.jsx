@@ -391,7 +391,7 @@ export default function App() {
             </div>
             <div>
               <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-                達麗宮廷 <span className="text-xs bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full border border-indigo-500/30">車牌與住戶智慧管理</span>
+                住戶管理 <span className="text-xs bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full border border-indigo-500/30">車牌與住戶智慧管理</span>
               </h1>
               <p className="text-xs text-slate-400 mt-0.5">大樓住戶、成員姓名與車牌號碼三向交叉對照查詢系統</p>
             </div>
