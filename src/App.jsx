@@ -7,7 +7,7 @@ import { initialMockResidents } from './mockData';
 import {
   filterResidents, formatSpeechText, parseExcelFile,
   exportToExcel, downloadTemplate, compressImage,
-  exportBackupJson, importBackupJson
+  exportBackupJson, importBackupJson, inferFloor, parseFieldQuery
 } from './utils';
 
 export default function App() {
@@ -16,7 +16,12 @@ export default function App() {
       const saved = localStorage.getItem('dali_residents');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map(r => ({
+            ...r,
+            floor: r.floor || inferFloor(r.unit)
+          }));
+        }
       }
     } catch (e) {
       console.error(e);
@@ -125,6 +130,7 @@ export default function App() {
 
       setEditingResident({
         ...resident,
+        floor: resident.floor || inferFloor(resident.unit),
         membersText: (resident.members || []).join('、'),
         vehicles,
         note: resident.note || ''
@@ -133,6 +139,7 @@ export default function App() {
       setEditingResident({
         id: `resident-${Date.now()}`,
         unit: '',
+        floor: '',
         membersText: '',
         vehicles: [{ plate: '', slot: '', photo: '' }],
         note: ''
@@ -162,6 +169,7 @@ export default function App() {
     const updated = {
       id: editingResident.id,
       unit: editingResident.unit.trim(),
+      floor: editingResident.floor?.trim() || inferFloor(editingResident.unit),
       members,
       plates,
       parkingSlots,
@@ -225,6 +233,7 @@ export default function App() {
               : (current.carPhotos || []);
             map.set(item.unit, {
               ...current,
+              floor: item.floor || current.floor || inferFloor(item.unit),
               members: combinedMembers,
               plates: combinedPlates,
               parkingSlots: combinedSlots,
@@ -232,7 +241,10 @@ export default function App() {
               note: [current.note, item.note].filter(Boolean).join('；')
             });
           } else {
-            map.set(item.unit, item);
+            map.set(item.unit, {
+              ...item,
+              floor: item.floor || inferFloor(item.unit)
+            });
           }
         });
         return Array.from(map.values());
@@ -250,7 +262,11 @@ export default function App() {
     if (!file) return;
     try {
       const data = await importBackupJson(file);
-      setResidents(data);
+      const withFloor = data.map(r => ({
+        ...r,
+        floor: r.floor || inferFloor(r.unit)
+      }));
+      setResidents(withFloor);
       alert(`成功還原 ${data.length} 筆住戶完整資料（含所有照片）！`);
       setIsClearModalOpen(false);
     } catch (err) {
@@ -376,35 +392,86 @@ export default function App() {
 
       {/* 主體內容 */}
       <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
-        {/* 搜尋列與語音 */}
-        <div className="relative flex items-center shadow-sm rounded-2xl bg-white border border-slate-200 overflow-hidden focus-within:ring-2 focus-within:ring-blue-500">
-          <Search className="w-5 h-5 text-slate-400 ml-4 shrink-0" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="搜尋住戶、姓名、車牌、車位（支援模糊輸入，如 12F、B1-101）..."
-            className="w-full px-3 py-4 text-slate-800 placeholder-slate-400 focus:outline-none text-lg font-medium"
-          />
-          {searchQuery && (
+        {/* 搜尋列與語音（支援針對各欄位查詢） */}
+        <div className="space-y-2.5">
+          <div className="relative flex items-center shadow-sm rounded-2xl bg-white border border-slate-200 overflow-hidden focus-within:ring-2 focus-within:ring-blue-500">
+            <Search className="w-5 h-5 text-slate-400 ml-4 shrink-0" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="搜尋或語音：可說「樓層 12樓」、「車牌 5678」、「車位 B1」或「姓名 王大明」..."
+              className="w-full px-3 py-4 text-slate-800 placeholder-slate-400 focus:outline-none text-lg font-medium"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="p-2 text-slate-400 hover:text-slate-600"
+                title="清除搜尋"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            )}
             <button
-              onClick={() => setSearchQuery('')}
-              className="p-2 text-slate-400 hover:text-slate-600"
+              onClick={toggleListening}
+              className={`mr-2 p-3 rounded-xl transition ${
+                isListening
+                  ? 'bg-rose-500 text-white animate-pulse'
+                  : 'text-slate-500 hover:bg-slate-100'
+              }`}
+              title={isListening ? '點擊結束語音辨識' : '點擊開始語音辨識（支援各欄位語音搜尋）'}
             >
-              <X className="w-5 h-5" />
+              {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
             </button>
+          </div>
+
+          {/* 語音聆聽即時提示 */}
+          {isListening && (
+            <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm font-bold animate-pulse">
+              <Mic className="w-4 h-4 shrink-0 text-rose-500" />
+              <span>正在聆聽中... 請說出查詢內容，例如：<b>「樓層 12樓」</b>、<b>「車牌 ABC-1234」</b>、<b>「車位 B1」</b> 或 <b>「姓名 王大明」</b></span>
+            </div>
           )}
-          <button
-            onClick={toggleListening}
-            className={`mr-2 p-3 rounded-xl transition ${
-              isListening
-                ? 'bg-rose-500 text-white animate-pulse'
-                : 'text-slate-500 hover:bg-slate-100'
-            }`}
-            title="語音辨識輸入"
-          >
-            {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-          </button>
+
+          {/* 各欄位快選篩選標籤 */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-xs">
+            <span className="text-slate-500 font-bold shrink-0 mr-1">欄位篩選:</span>
+            {[
+              { label: '全部欄位', prefix: '', key: 'all' },
+              { label: '樓層', prefix: '樓層: ', key: 'floor' },
+              { label: '車牌', prefix: '車牌: ', key: 'plate' },
+              { label: '車位', prefix: '車位: ', key: 'slot' },
+              { label: '姓名', prefix: '姓名: ', key: 'member' },
+              { label: '住戶代號', prefix: '住戶: ', key: 'unit' },
+              { label: '備註', prefix: '備註: ', key: 'note' }
+            ].map(tab => {
+              const parsed = parseFieldQuery(searchQuery);
+              const isActive = tab.key === 'all'
+                ? parsed.field === 'all' && !searchQuery.match(/^(樓層|車牌|車位|姓名|成員|住戶|戶號|房號|備註)[:：\s]/)
+                : parsed.field === tab.key;
+
+              return (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => {
+                    if (tab.key === 'all') {
+                      setSearchQuery(parsed.keyword);
+                    } else {
+                      setSearchQuery(`${tab.prefix}${parsed.keyword}`);
+                    }
+                  }}
+                  className={`px-3 py-1.5 rounded-lg font-bold transition shrink-0 ${
+                    isActive
+                      ? 'bg-blue-600 text-white shadow-xs'
+                      : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* 統計與快捷操作 */}
@@ -439,13 +506,22 @@ export default function App() {
                 <div>
                   {/* 住戶標題與操作 */}
                   <div className="flex items-start justify-between pb-3 border-b border-slate-100">
-                    <div className="flex items-center gap-2.5">
-                      <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="p-2 bg-blue-50 text-blue-600 rounded-lg shrink-0">
                         <Building className="w-5 h-5" />
                       </div>
-                      <h2 className="font-black text-slate-900 text-xl tracking-tight">{r.unit}</h2>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h2 className="font-black text-slate-900 text-xl tracking-tight">{r.unit}</h2>
+                          {(r.floor || inferFloor(r.unit)) && (
+                            <span className="px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-black shrink-0">
+                              {r.floor || inferFloor(r.unit)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 shrink-0">
                       <button
                         onClick={() => openEditModal(r)}
                         className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
@@ -555,16 +631,36 @@ export default function App() {
             </div>
 
             <form onSubmit={handleSaveResident} className="mt-4 space-y-4">
-              <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1">住戶代號 *</label>
-                <input
-                  type="text"
-                  required
-                  value={editingResident.unit}
-                  onChange={(e) => setEditingResident({ ...editingResident, unit: e.target.value })}
-                  placeholder="例如：A棟-12F-1"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-base"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">住戶代號 *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editingResident.unit}
+                    onChange={(e) => {
+                      const unitVal = e.target.value;
+                      const next = { ...editingResident, unit: unitVal };
+                      if (!editingResident.floor) {
+                        next.floor = inferFloor(unitVal);
+                      }
+                      setEditingResident(next);
+                    }}
+                    placeholder="例如：A棟-12F-1"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-base"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">所屬樓層</label>
+                  <input
+                    type="text"
+                    value={editingResident.floor || ''}
+                    onChange={(e) => setEditingResident({ ...editingResident, floor: e.target.value })}
+                    placeholder="例如：12F 或 12樓"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-base"
+                  />
+                </div>
               </div>
 
               <div>
