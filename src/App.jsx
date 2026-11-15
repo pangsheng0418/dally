@@ -266,26 +266,32 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
-      {/* 頂部導航 */}
-      <header className="sticky top-0 z-20 bg-white/80 backdrop-blur-md border-b border-slate-200">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-500/20">
-              <Car className="w-6 h-6" />
+      {/* 頂部導航：分為兩行，解決手機顯示過長與擁擠問題 */}
+      <header className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-slate-200 shadow-xs">
+        <div className="max-w-6xl mx-auto px-4 py-2.5 space-y-2.5">
+          {/* 第一行：系統標題與字體大小切換選項 */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0">
+                <Car className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <h1 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight truncate">
+                  住戶管理
+                </h1>
+                <p className="text-xs text-slate-500 font-medium truncate">
+                  車牌、車位與照片智慧對照系統
+                </p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-2xl font-black text-slate-900 tracking-tight">住戶管理</h1>
-              <p className="text-xs text-slate-500 font-medium">車牌、車位與照片智慧對照系統</p>
-            </div>
-          </div>
 
-          <div className="flex items-center gap-2">
             {/* 字體大小切換選項 */}
-            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 mr-1">
+            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 shrink-0">
+              <span className="text-xs text-slate-500 font-bold px-1.5 hidden sm:inline">字體:</span>
               <button
                 type="button"
                 onClick={() => setFontSize('normal')}
-                className={`px-2.5 py-1 text-xs font-bold rounded-lg transition ${
+                className={`px-2 py-1 text-xs font-bold rounded-lg transition ${
                   fontSize === 'normal'
                     ? 'bg-white text-blue-600 shadow-sm'
                     : 'text-slate-600 hover:text-slate-900'
@@ -297,7 +303,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setFontSize('large')}
-                className={`px-2.5 py-1 text-xs font-bold rounded-lg transition ${
+                className={`px-2 py-1 text-xs font-bold rounded-lg transition ${
                   fontSize === 'large'
                     ? 'bg-white text-blue-600 shadow-sm'
                     : 'text-slate-600 hover:text-slate-900'
@@ -309,7 +315,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setFontSize('xlarge')}
-                className={`px-2.5 py-1 text-xs font-bold rounded-lg transition ${
+                className={`px-2 py-1 text-xs font-bold rounded-lg transition ${
                   fontSize === 'xlarge'
                     ? 'bg-white text-blue-600 shadow-sm'
                     : 'text-slate-600 hover:text-slate-900'
@@ -319,22 +325,25 @@ export default function App() {
                 特大
               </button>
             </div>
+          </div>
 
+          {/* 第二行：快捷操作功能列 */}
+          <div className="flex items-center justify-between sm:justify-end gap-2 pt-2 border-t border-slate-100">
             <button
               onClick={() => openEditModal()}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-bold rounded-xl bg-blue-600 text-white hover:bg-blue-700 shadow-sm transition"
+              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 text-sm font-bold rounded-xl bg-blue-600 text-white hover:bg-blue-700 shadow-sm transition"
             >
               <Plus className="w-4 h-4" />
-              <span className="hidden sm:inline">新增住戶</span>
+              <span>新增住戶</span>
             </button>
 
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-bold rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm transition"
+              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 text-sm font-bold rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm transition"
               title="匯入 Excel"
             >
               <Upload className="w-4 h-4" />
-              <span className="hidden sm:inline">匯入</span>
+              <span>匯入</span>
             </button>
             <input
               type="file"
@@ -346,19 +355,20 @@ export default function App() {
 
             <button
               onClick={() => exportToExcel(residents)}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-bold rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition"
+              className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 text-sm font-bold rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition"
               title="匯出 Excel"
             >
               <Download className="w-4 h-4" />
-              <span className="hidden sm:inline">匯出</span>
+              <span>匯出</span>
             </button>
 
             <button
               onClick={() => setIsClearModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-2.5 py-2 text-sm font-bold rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-100 transition"
+              className="inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 sm:py-2 text-sm font-bold rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-100 transition shrink-0"
               title="重設/清空"
             >
               <RotateCcw className="w-4 h-4" />
+              <span className="hidden sm:inline">重設</span>
             </button>
           </div>
         </div>
