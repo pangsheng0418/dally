@@ -1,561 +1,452 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Search, 
-  Mic, 
-  FileSpreadsheet, 
-  Plus, 
-  Edit2, 
-  Trash2, 
-  X, 
-  Download, 
-  Upload, 
-  AlertCircle, 
-  CheckCircle, 
-  Info, 
-  HelpCircle, 
-  PlusCircle, 
-  MinusCircle, 
-  Building2, 
-  Users, 
-  CreditCard,
-  FileText,
-  RotateCcw
+import {
+  Search, Mic, MicOff, Car, Users, Building, Plus, Trash2, Edit3,
+  Upload, Download, FileSpreadsheet, RotateCcw, AlertTriangle, Eye, X, Image as ImageIcon
 } from 'lucide-react';
-import { initialResidents } from './mockData';
-import { 
-  filterResidents, 
-  normalizeVoiceInput, 
-  parseExcelFile, 
-  exportToExcel, 
-  downloadTemplate 
+import { initialMockResidents } from './mockData';
+import {
+  filterResidents, formatSpeechText, parseExcelFile,
+  exportToExcel, downloadTemplate, compressImage,
+  exportBackupJson, importBackupJson
 } from './utils';
 
 export default function App() {
-  // 狀態管理
   const [residents, setResidents] = useState(() => {
     try {
-      const saved = localStorage.getItem('residents_data');
+      const saved = localStorage.getItem('dali_residents');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          return parsed;
-        }
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
     } catch (e) {
-      console.error('Failed to parse residents data from localStorage', e);
+      console.error(e);
     }
-    return [];
+    return initialMockResidents;
   });
-  
+
   const [searchQuery, setSearchQuery] = useState('');
-  const [isRecording, setIsRecording] = useState(false);
-  const [activeModal, setActiveModal] = useState(null); // 'add' | 'edit' | 'excel' | 'delete_confirm' | null
-  const [selectedResident, setSelectedResident] = useState(null);
-  const [alert, setAlert] = useState(null);
-  
-  // CRUD 表單狀態
-  const [formId, setFormId] = useState('');
-  const [formMembers, setFormMembers] = useState(['']);
-  const [formPlates, setFormPlates] = useState(['']);
-  const [formNotes, setFormNotes] = useState('');
-  const [formErrors, setFormErrors] = useState({});
+  const [isListening, setIsListening] = useState(false);
+  const [speechSupported, setSpeechSupported] = useState(true);
 
-  // Excel 拖曳狀態
-  const [isDragging, setIsDragging] = useState(false);
-  
-  const recognitionRef = useRef(null);
-  const fileInputRef = useRef(null);
+  // 字體大小等級：'normal' (16px), 'large' (18px), 'xlarge' (20.5px)
+  const [fontSize, setFontSize] = useState(() => {
+    return localStorage.getItem('dali_font_size') || 'large';
+  });
 
-  // 儲存資料至 LocalStorage
   useEffect(() => {
-    localStorage.setItem('residents_data', JSON.stringify(residents));
+    document.documentElement.classList.remove('font-size-normal', 'font-size-large', 'font-size-xlarge');
+    document.documentElement.classList.add(`font-size-${fontSize}`);
+    localStorage.setItem('dali_font_size', fontSize);
+  }, [fontSize]);
+
+  // 編輯/新增 Modal
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingResident, setEditingResident] = useState(null);
+
+  // 清除確認 Modal
+  const [isClearModalOpen, setIsClearModalOpen] = useState(false);
+
+  // 圖片大圖檢視 Modal
+  const [viewingPhoto, setViewingPhoto] = useState(null);
+
+  const fileInputRef = useRef(null);
+  const backupInputRef = useRef(null);
+  const recognitionRef = useRef(null);
+
+  // 儲存至 LocalStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('dali_residents', JSON.stringify(residents));
+    } catch (e) {
+      console.warn('LocalStorage 儲存空間提醒：', e);
+    }
   }, [residents]);
 
-  // 顯示通知
-  const showAlert = (type, text) => {
-    setAlert({ type, text });
-    // 自動消失
-    const timer = setTimeout(() => {
-      setAlert(null);
-    }, 4500);
-    return () => clearTimeout(timer);
-  };
-
-  // 統計數據計算
-  const totalResidents = residents.length;
-  const totalMembers = residents.reduce((acc, curr) => acc + curr.members.length, 0);
-  const totalPlates = residents.reduce((acc, curr) => acc + curr.licensePlates.length, 0);
-
-  // 搜尋過濾後的資料
-  const filteredData = filterResidents(residents, searchQuery);
-
-  // 語音搜尋處理
-  const handleVoiceSearch = () => {
+  // 初始化語音辨識
+  useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      showAlert('error', '您的瀏覽器不支援語音辨識。建議使用 Google Chrome 瀏覽器！');
+    if (SpeechRecognition) {
+      const recog = new SpeechRecognition();
+      recog.continuous = false;
+      recog.interimResults = false;
+      recog.lang = 'zh-TW';
+
+      recog.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        const formatted = formatSpeechText(transcript);
+        setSearchQuery(formatted);
+        setIsListening(false);
+      };
+
+      recog.onerror = () => setIsListening(false);
+      recog.onend = () => setIsListening(false);
+
+      recognitionRef.current = recog;
+    } else {
+      setSpeechSupported(false);
+    }
+  }, []);
+
+  const toggleListening = () => {
+    if (!speechSupported) {
+      alert('您的瀏覽器不支援語音輸入功能。');
       return;
     }
-
-    if (isRecording) {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+    } else {
+      try {
+        recognitionRef.current?.start();
+        setIsListening(true);
+      } catch (err) {
+        console.error(err);
       }
-      return;
     }
+  };
 
-    const recognition = new SpeechRecognition();
-    recognitionRef.current = recognition;
-    recognition.lang = 'zh-TW';
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
+  // 開啟編輯/新增 Modal
+  const openEditModal = (resident = null) => {
+    if (resident) {
+      const plates = resident.plates || [];
+      const slots = resident.parkingSlots || [];
+      const photos = resident.carPhotos || [];
 
-    recognition.onstart = () => {
-      setIsRecording(true);
-      showAlert('info', '麥克風已啟動，請說出住戶代號（如：A棟十二樓之一）、成員姓名或車牌號碼...');
-    };
-
-    recognition.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      const formatted = normalizeVoiceInput(transcript);
-      setSearchQuery(formatted);
-      showAlert('success', `語音辨識成功！聽到：「${transcript}」 ➜ 搜尋關鍵字：「${formatted}」`);
-    };
-
-    recognition.onerror = (event) => {
-      console.error('Speech error', event);
-      if (event.error === 'not-allowed') {
-        showAlert('error', '麥克風使用權限遭拒。請在瀏覽器網址列旁開啟麥克風權限。');
-      } else {
-        showAlert('error', `語音辨識出錯：${event.error}`);
+      // 依車輛數量組合車輛陣列
+      const count = Math.max(plates.length, slots.length, photos.length, 1);
+      const vehicles = [];
+      for (let i = 0; i < count; i++) {
+        vehicles.push({
+          plate: plates[i] || '',
+          slot: slots[i] || '',
+          photo: photos[i] || ''
+        });
       }
-      setIsRecording(false);
-    };
 
-    recognition.onend = () => {
-      setIsRecording(false);
-    };
-
-    recognition.start();
+      setEditingResident({
+        ...resident,
+        membersText: (resident.members || []).join('、'),
+        vehicles,
+        note: resident.note || ''
+      });
+    } else {
+      setEditingResident({
+        id: `resident-${Date.now()}`,
+        unit: '',
+        membersText: '',
+        vehicles: [{ plate: '', slot: '', photo: '' }],
+        note: ''
+      });
+    }
+    setIsModalOpen(true);
   };
 
-
-
-  // 開啟編輯 Modal
-  const openEditModal = (resident) => {
-    setSelectedResident(resident);
-    setFormId(resident.id);
-    setFormMembers(resident.members.length > 0 ? [...resident.members] : ['']);
-    setFormPlates(resident.licensePlates.length > 0 ? [...resident.licensePlates] : ['']);
-    setFormNotes(resident.notes || '');
-    setFormErrors({});
-    setActiveModal('edit');
-  };
-
-  // 開啟刪除確認 Modal
-  const openDeleteConfirm = (resident) => {
-    setSelectedResident(resident);
-    setActiveModal('delete_confirm');
-  };
-
-  // 處理 CRUD 表單動態欄位增減
-  const handleAddMemberField = () => setFormMembers([...formMembers, '']);
-  const handleRemoveMemberField = (index) => {
-    const updated = formMembers.filter((_, i) => i !== index);
-    setFormMembers(updated.length === 0 ? [''] : updated);
-  };
-  const handleMemberChange = (index, value) => {
-    const updated = [...formMembers];
-    updated[index] = value;
-    setFormMembers(updated);
-  };
-
-  const handleAddPlateField = () => setFormPlates([...formPlates, '']);
-  const handleRemovePlateField = (index) => {
-    const updated = formPlates.filter((_, i) => i !== index);
-    setFormPlates(updated.length === 0 ? [''] : updated);
-  };
-  const handlePlateChange = (index, value) => {
-    const updated = [...formPlates];
-    updated[index] = value.toUpperCase(); // 車牌號碼一律大寫
-    setFormPlates(updated);
-  };
-
-  // 驗證並儲存住戶
+  // 儲存住戶
   const handleSaveResident = (e) => {
     e.preventDefault();
-    const errors = {};
-    
-    // 住戶代號必填與重複檢查
-    const trimmedId = formId.trim();
-    if (!trimmedId) {
-      errors.id = '請輸入住戶代號';
-    } else if (activeModal === 'add' && residents.some(r => r.id.toLowerCase() === trimmedId.toLowerCase())) {
-      errors.id = '此住戶代號已存在系統中';
-    }
-
-    // 清理成員與車牌 (去空格與過濾空值)
-    const cleanedMembers = formMembers.map(m => m.trim()).filter(Boolean);
-    const cleanedPlates = formPlates.map(p => p.trim().toUpperCase()).filter(Boolean);
-
-    if (Object.keys(errors).length > 0) {
-      setFormErrors(errors);
+    if (!editingResident.unit.trim()) {
+      alert('請填寫住戶代號');
       return;
     }
 
-    const newResident = {
-      id: trimmedId,
-      members: cleanedMembers,
-      licensePlates: cleanedPlates,
-      notes: formNotes.trim() || '無備註'
+    const members = editingResident.membersText
+      .split(/[,、/，\s]+/)
+      .map(m => m.trim())
+      .filter(Boolean);
+
+    const validVehicles = editingResident.vehicles.filter(v => v.plate.trim() || v.slot.trim() || v.photo);
+    const plates = validVehicles.map(v => v.plate.trim().toUpperCase().replace(/\s+/g, '')).filter(Boolean);
+    const parkingSlots = validVehicles.map(v => v.slot.trim());
+    const carPhotos = validVehicles.map(v => v.photo || '');
+
+    const updated = {
+      id: editingResident.id,
+      unit: editingResident.unit.trim(),
+      members,
+      plates,
+      parkingSlots,
+      carPhotos,
+      note: editingResident.note.trim()
     };
 
-    if (activeModal === 'add') {
-      setResidents([newResident, ...residents]);
-      showAlert('success', `已成功新增住戶：${trimmedId}`);
-    } else {
-      // 編輯模式
-      const updated = residents.map(r => r.id === selectedResident.id ? newResident : r);
-      setResidents(updated);
-      showAlert('success', `已成功更新住戶：${trimmedId}`);
-    }
+    setResidents(prev => {
+      const exists = prev.some(r => r.id === updated.id);
+      if (exists) {
+        return prev.map(r => r.id === updated.id ? updated : r);
+      }
+      return [updated, ...prev];
+    });
 
-    setActiveModal(null);
+    setIsModalOpen(false);
   };
 
   // 刪除住戶
-  const handleDeleteResident = () => {
-    if (!selectedResident) return;
-    const updated = residents.filter(r => r.id !== selectedResident.id);
-    setResidents(updated);
-    showAlert('success', `已成功刪除住戶：${selectedResident.id}`);
-    setActiveModal(null);
-  };
-
-  // Excel 拖曳匯入事件處理
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = () => {
-    setIsDragging(false);
-  };
-
-  const handleDrop = async (e) => {
-    e.preventDefault();
-    setIsDragging(false);
-    
-    const file = e.dataTransfer.files[0];
-    if (file) {
-      processImportFile(file);
+  const handleDeleteResident = (id) => {
+    if (window.confirm('確定要刪除此筆住戶資料嗎？')) {
+      setResidents(prev => prev.filter(r => r.id !== id));
     }
   };
 
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      processImportFile(file);
-    }
-  };
-
-  // 處理匯入 Excel 檔案與資料合併
-  const processImportFile = async (file) => {
-    const fileExtension = file.name.split('.').pop().toLowerCase();
-    if (fileExtension !== 'xlsx' && fileExtension !== 'xls') {
-      showAlert('error', '不支援的檔案格式，請上傳 .xlsx 或 .xls 檔案！');
-      return;
-    }
-
+  // 車輛照片上傳處理
+  const handlePhotoUpload = async (index, file) => {
+    if (!file) return;
     try {
-      showAlert('info', '正在解析 Excel 檔案...');
-      const importedList = await parseExcelFile(file);
-      
-      const merged = [...residents];
-      let addedCount = 0;
-      let mergedCount = 0;
-
-      importedList.forEach(imported => {
-        const existingIdx = merged.findIndex(r => r.id.toLowerCase() === imported.id.toLowerCase());
-        
-        if (existingIdx > -1) {
-          // 住戶已存在，進行合併與去重
-          const existing = merged[existingIdx];
-          
-          // 合併成員
-          const combinedMembers = Array.from(
-            new Set([...existing.members, ...imported.members])
-          );
-          
-          // 合併車牌
-          const combinedPlates = Array.from(
-            new Set([...existing.licensePlates, ...imported.licensePlates])
-          );
-          
-          // 合併備註 (避開重複字串)
-          let combinedNotes = existing.notes;
-          if (imported.notes && imported.notes !== '無備註') {
-            if (combinedNotes === '無備註' || !combinedNotes) {
-              combinedNotes = imported.notes;
-            } else if (!combinedNotes.toLowerCase().includes(imported.notes.toLowerCase())) {
-              combinedNotes = `${combinedNotes}；${imported.notes}`;
-            }
-          }
-
-          merged[existingIdx] = {
-            ...existing,
-            members: combinedMembers,
-            licensePlates: combinedPlates,
-            notes: combinedNotes
-          };
-          mergedCount++;
-        } else {
-          // 新增住戶
-          merged.push(imported);
-          addedCount++;
-        }
+      const base64 = await compressImage(file);
+      setEditingResident(prev => {
+        const nextVehicles = [...prev.vehicles];
+        nextVehicles[index] = { ...nextVehicles[index], photo: base64 };
+        return { ...prev, vehicles: nextVehicles };
       });
-
-      setResidents(merged);
-      showAlert('success', `Excel 匯入完成！成功新增 ${addedCount} 戶，合併更新 ${mergedCount} 戶。`);
-      setActiveModal(null);
     } catch (err) {
-      console.error(err);
-      showAlert('error', `Excel 解析失敗，請確認檔案格式是否符合範本欄位規範。`);
+      alert('圖片處理失敗，請重試');
     }
   };
 
-  // 匯出 Excel
-  const handleExport = () => {
-    if (residents.length === 0) {
-      showAlert('warning', '系統中目前無資料可匯出！');
-      return;
-    }
+  // Excel 匯入
+  const handleExcelImport = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
     try {
-      exportToExcel(residents);
-      showAlert('success', '已成功匯出大樓住戶車牌對照表 Excel。');
+      const parsed = await parseExcelFile(file);
+      if (parsed.length === 0) {
+        alert('未在 Excel 檔案中讀取到資料');
+        return;
+      }
+      setResidents(prev => {
+        const map = new Map(prev.map(r => [r.unit, { ...r }]));
+        parsed.forEach(item => {
+          if (map.has(item.unit)) {
+            const current = map.get(item.unit);
+            const combinedMembers = Array.from(new Set([...current.members, ...item.members]));
+            const combinedPlates = Array.from(new Set([...current.plates, ...item.plates]));
+            const combinedSlots = Array.from(new Set([...(current.parkingSlots || []), ...(item.parkingSlots || [])]));
+            const combinedPhotos = item.carPhotos && item.carPhotos.length > 0
+              ? item.carPhotos
+              : (current.carPhotos || []);
+            map.set(item.unit, {
+              ...current,
+              members: combinedMembers,
+              plates: combinedPlates,
+              parkingSlots: combinedSlots,
+              carPhotos: combinedPhotos,
+              note: [current.note, item.note].filter(Boolean).join('；')
+            });
+          } else {
+            map.set(item.unit, item);
+          }
+        });
+        return Array.from(map.values());
+      });
+      alert(`成功匯入 ${parsed.length} 筆資料！`);
     } catch (err) {
-      showAlert('error', '匯出失敗，請重試。');
+      alert('Excel 匯入失敗，請確認檔案格式是否正確');
     }
+    e.target.value = '';
   };
 
-  // 下載範本
-  const handleDownloadTemplate = () => {
+  // 還原完整備份（含照片）
+  const handleBackupImport = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
     try {
-      downloadTemplate();
-      showAlert('success', '已下載匯入範本，請依照表頭格式填寫後上傳。');
+      const data = await importBackupJson(file);
+      setResidents(data);
+      alert(`成功還原 ${data.length} 筆住戶完整資料（含所有照片）！`);
+      setIsClearModalOpen(false);
     } catch (err) {
-      showAlert('error', '下載範本失敗。');
+      alert('還原備份失敗：' + err.message);
     }
+    e.target.value = '';
   };
+
+  const filteredResidents = filterResidents(residents, searchQuery);
+
+  const totalVehicles = residents.reduce((acc, r) => acc + (r.plates ? r.plates.length : 0), 0);
+  const totalPhotos = residents.reduce((acc, r) => acc + (r.carPhotos ? r.carPhotos.filter(Boolean).length : 0), 0);
 
   return (
-    <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-slate-100 min-h-screen pb-20 font-sans antialiased">
-      
-      {/* Toast Alert 通知中心 */}
-      {alert && (
-        <div className="fixed top-6 right-6 z-50 transition-all duration-300 max-w-md w-full animate-bounce-short">
-          <div className={`p-4 rounded-xl shadow-2xl backdrop-blur-md flex items-start gap-3 border ${
-            alert.type === 'success' ? 'bg-emerald-950/80 border-emerald-500/50 text-emerald-200' :
-            alert.type === 'error' ? 'bg-rose-950/80 border-rose-500/50 text-rose-200' :
-            alert.type === 'info' ? 'bg-blue-950/80 border-blue-500/50 text-blue-200' :
-            'bg-amber-950/80 border-amber-500/50 text-amber-200'
-          }`}>
-            <span className="mt-0.5">
-              {alert.type === 'success' && <CheckCircle className="w-5 h-5 text-emerald-400" />}
-              {alert.type === 'error' && <AlertCircle className="w-5 h-5 text-rose-400" />}
-              {alert.type === 'info' && <Info className="w-5 h-5 text-blue-400" />}
-              {alert.type === 'warning' && <AlertCircle className="w-5 h-5 text-amber-400" />}
-            </span>
-            <div className="flex-1">
-              <p className="font-semibold text-sm capitalize">{
-                alert.type === 'success' ? '成功' :
-                alert.type === 'error' ? '錯誤' :
-                alert.type === 'info' ? '系統提示' : '警告'
-              }</p>
-              <p className="text-xs mt-1 text-slate-300">{alert.text}</p>
-            </div>
-            <button onClick={() => setAlert(null)} className="text-slate-400 hover:text-slate-200">
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Header 區 */}
-      <header className="border-b border-slate-800 bg-slate-900/40 backdrop-blur-md sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="min-h-screen bg-slate-50 text-slate-800">
+      {/* 頂部導航 */}
+      <header className="sticky top-0 z-20 bg-white/80 backdrop-blur-md border-b border-slate-200">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-indigo-600/30 text-indigo-400 rounded-2xl border border-indigo-500/30 shadow-[0_0_15px_rgba(99,102,241,0.2)]">
-              <Building2 className="w-7 h-7" />
+            <div className="w-11 h-11 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-lg shadow-blue-500/20">
+              <Car className="w-6 h-6" />
             </div>
             <div>
-              <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-                住戶管理 <span className="text-xs bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full border border-indigo-500/30">車牌與住戶智慧管理</span>
-              </h1>
-              <p className="text-xs text-slate-400 mt-0.5">大樓住戶、成員姓名與車牌號碼三向交叉對照查詢系統</p>
+              <h1 className="text-2xl font-black text-slate-900 tracking-tight">住戶管理</h1>
+              <p className="text-xs text-slate-500 font-medium">車牌、車位與照片智慧對照系統</p>
             </div>
           </div>
-          
+
           <div className="flex items-center gap-2">
-            <button 
-              onClick={() => setActiveModal('clear_confirm')}
-              className="flex items-center justify-center gap-1.5 sm:gap-2 p-2.5 sm:px-4 sm:py-2 bg-slate-800 hover:bg-rose-950/30 text-slate-300 hover:text-rose-400 border border-slate-700 hover:border-rose-900/50 text-sm font-semibold rounded-xl transition-all cursor-pointer"
-              title="清除所有資料或還原為預設範例"
+            {/* 字體大小切換選項 */}
+            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 mr-1">
+              <button
+                type="button"
+                onClick={() => setFontSize('normal')}
+                className={`px-2.5 py-1 text-xs font-bold rounded-lg transition ${
+                  fontSize === 'normal'
+                    ? 'bg-white text-blue-600 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="標準字體 (16px)"
+              >
+                標準
+              </button>
+              <button
+                type="button"
+                onClick={() => setFontSize('large')}
+                className={`px-2.5 py-1 text-xs font-bold rounded-lg transition ${
+                  fontSize === 'large'
+                    ? 'bg-white text-blue-600 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="放大字體 (18px，預設)"
+              >
+                放大
+              </button>
+              <button
+                type="button"
+                onClick={() => setFontSize('xlarge')}
+                className={`px-2.5 py-1 text-xs font-bold rounded-lg transition ${
+                  fontSize === 'xlarge'
+                    ? 'bg-white text-blue-600 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                title="特大字體 (20.5px)"
+              >
+                特大
+              </button>
+            </div>
+
+            <button
+              onClick={() => openEditModal()}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-bold rounded-xl bg-blue-600 text-white hover:bg-blue-700 shadow-sm transition"
             >
-              <RotateCcw className="w-4 h-4" />
-              <span className="hidden sm:inline">清除與重設</span>
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">新增住戶</span>
             </button>
 
-            <button 
-              onClick={() => setActiveModal('excel')}
-              className="flex items-center justify-center gap-1.5 sm:gap-2 p-2.5 sm:px-4 sm:py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 hover:border-slate-600 text-sm font-semibold rounded-xl transition-all cursor-pointer"
-              title="Excel 批次管理"
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-bold rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm transition"
+              title="匯入 Excel"
             >
-              <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-              <span className="hidden sm:inline">Excel 批次管理</span>
+              <Upload className="w-4 h-4" />
+              <span className="hidden sm:inline">匯入</span>
+            </button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleExcelImport}
+              accept=".xlsx,.xls"
+              className="hidden"
+            />
+
+            <button
+              onClick={() => exportToExcel(residents)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-bold rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition"
+              title="匯出 Excel"
+            >
+              <Download className="w-4 h-4" />
+              <span className="hidden sm:inline">匯出</span>
+            </button>
+
+            <button
+              onClick={() => setIsClearModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-2.5 py-2 text-sm font-bold rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-100 transition"
+              title="重設/清空"
+            >
+              <RotateCcw className="w-4 h-4" />
             </button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8">
-        
-        {/* 搜尋與語音控制區 */}
-        <section className="max-w-3xl mx-auto mb-8">
-          <div className="relative flex items-center">
-            <div className="absolute left-4 text-slate-400">
-              <Search className="w-5 h-5" />
-            </div>
-            <input 
-              type="text" 
-              placeholder="搜尋車牌、住戶代號、成員姓名..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-24 py-2.5 sm:pl-12 sm:pr-28 sm:py-3.5 bg-slate-900/60 hover:bg-slate-900/80 focus:bg-slate-900 border border-slate-800 focus:border-indigo-500 rounded-2xl text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all text-sm sm:text-base shadow-inner"
-            />
-            
-            <div className="absolute right-2 flex items-center gap-1">
-              {searchQuery && (
-                <button 
-                  onClick={() => setSearchQuery('')}
-                  className="p-1.5 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800 transition-all"
-                  title="清除搜尋"
-                >
-                  <X className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                </button>
-              )}
-              
-              <button 
-                onClick={handleVoiceSearch}
-                className={`p-1.5 sm:p-2 rounded-xl transition-all cursor-pointer ${
-                  isRecording 
-                    ? 'bg-rose-600 hover:bg-rose-500 text-white pulse-animation' 
-                    : 'bg-indigo-950/60 hover:bg-indigo-900/80 text-indigo-400 border border-indigo-500/30'
-                }`}
-                title={isRecording ? '停止錄音' : '語音搜尋'}
-              >
-                <Mic className="w-4 h-4 sm:w-5 h-5" />
-              </button>
-            </div>
-          </div>
-
-          {/* 語音錄製中動態波形 */}
-          {isRecording && (
-            <div className="mt-2.5 flex items-center justify-center gap-1.5 p-2 sm:p-3 bg-rose-950/30 border border-rose-900/40 rounded-xl animate-pulse">
-              <span className="text-[11px] sm:text-xs text-rose-300 font-semibold tracking-wider">正在聆聽語音...</span>
-              <div className="flex items-end gap-0.5 h-3.5">
-                <div className="w-0.75 bg-rose-400 rounded-full h-full wave-bar"></div>
-                <div className="w-0.75 bg-rose-400 rounded-full h-full wave-bar"></div>
-                <div className="w-0.75 bg-rose-400 rounded-full h-full wave-bar"></div>
-                <div className="w-0.75 bg-rose-400 rounded-full h-full wave-bar"></div>
-                <div className="w-0.75 bg-rose-400 rounded-full h-full wave-bar"></div>
-              </div>
-            </div>
-          )}
-        </section>
-
-        {/* 快速統計面板 */}
-        <section className="grid grid-cols-3 gap-2 sm:gap-4 mb-6 sm:mb-8">
-          <div className="glass-effect p-3 sm:p-4 rounded-2xl flex items-center justify-between shadow-lg relative overflow-hidden group">
-            <div className="absolute right-0 top-0 w-24 h-24 bg-indigo-500/5 rounded-full blur-xl group-hover:bg-indigo-500/10 transition-all duration-500"></div>
-            <div>
-              <p className="text-[10px] sm:text-xs text-slate-400 font-medium">住戶總數</p>
-              <h3 className="text-lg sm:text-3xl font-extrabold text-white mt-0.5 sm:mt-1">{totalResidents} <span className="text-[9px] sm:text-xs text-slate-500 font-normal">戶</span></h3>
-            </div>
-            <div className="p-1.5 sm:p-3 bg-indigo-500/10 text-indigo-400 rounded-xl border border-indigo-500/20">
-              <Building2 className="w-4 h-4 sm:w-5 h-5" />
-            </div>
-          </div>
-
-          <div className="glass-effect p-3 sm:p-4 rounded-2xl flex items-center justify-between shadow-lg relative overflow-hidden group">
-            <div className="absolute right-0 top-0 w-24 h-24 bg-emerald-500/5 rounded-full blur-xl group-hover:bg-emerald-500/10 transition-all duration-500"></div>
-            <div>
-              <p className="text-[10px] sm:text-xs text-slate-400 font-medium">住戶成員</p>
-              <h3 className="text-lg sm:text-3xl font-extrabold text-white mt-0.5 sm:mt-1">{totalMembers} <span className="text-[9px] sm:text-xs text-slate-500 font-normal">人</span></h3>
-            </div>
-            <div className="p-1.5 sm:p-3 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
-              <Users className="w-4 h-4 sm:w-5 h-5" />
-            </div>
-          </div>
-
-          <div className="glass-effect p-3 sm:p-4 rounded-2xl flex items-center justify-between shadow-lg relative overflow-hidden group">
-            <div className="absolute right-0 top-0 w-24 h-24 bg-sky-500/5 rounded-full blur-xl group-hover:bg-sky-500/10 transition-all duration-500"></div>
-            <div>
-              <p className="text-[10px] sm:text-xs text-slate-400 font-medium">登記車牌</p>
-              <h3 className="text-lg sm:text-3xl font-extrabold text-white mt-0.5 sm:mt-1">{totalPlates} <span className="text-[9px] sm:text-xs text-slate-500 font-normal">筆</span></h3>
-            </div>
-            <div className="p-1.5 sm:p-3 bg-sky-500/10 text-sky-400 rounded-xl border border-sky-500/20">
-              <CreditCard className="w-4 h-4 sm:w-5 h-5" />
-            </div>
-          </div>
-        </section>
-
-        {/* 搜尋結果標題 */}
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-base font-bold text-slate-300 flex items-center gap-2">
-            住戶名單對照 
-            <span className="text-xs bg-slate-800 text-slate-400 px-2 py-0.5 rounded-md font-semibold">
-              共符合 {filteredData.length} 筆
-            </span>
-          </h2>
+      {/* 主體內容 */}
+      <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
+        {/* 搜尋列與語音 */}
+        <div className="relative flex items-center shadow-sm rounded-2xl bg-white border border-slate-200 overflow-hidden focus-within:ring-2 focus-within:ring-blue-500">
+          <Search className="w-5 h-5 text-slate-400 ml-4 shrink-0" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="搜尋住戶、姓名、車牌、車位（支援模糊輸入，如 12F、B1-101）..."
+            className="w-full px-3 py-4 text-slate-800 placeholder-slate-400 focus:outline-none text-lg font-medium"
+          />
           {searchQuery && (
-            <button 
+            <button
               onClick={() => setSearchQuery('')}
-              className="text-xs text-indigo-400 hover:text-indigo-300 font-medium"
+              className="p-2 text-slate-400 hover:text-slate-600"
             >
-              清除過濾條件
+              <X className="w-5 h-5" />
             </button>
           )}
+          <button
+            onClick={toggleListening}
+            className={`mr-2 p-3 rounded-xl transition ${
+              isListening
+                ? 'bg-rose-500 text-white animate-pulse'
+                : 'text-slate-500 hover:bg-slate-100'
+            }`}
+            title="語音辨識輸入"
+          >
+            {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+          </button>
         </div>
 
-        {/* 住戶結果卡片列表 */}
-        {filteredData.length > 0 ? (
-          <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredData.map((resident) => (
-              <div 
-                key={resident.id} 
-                className="glass-card p-4 sm:p-5 rounded-2xl flex flex-col justify-between relative overflow-hidden group shadow-lg"
+        {/* 統計與快捷操作 */}
+        <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-600 px-1">
+          <div className="flex items-center gap-4">
+            <span>住戶：<b className="text-slate-900 font-bold text-base">{residents.length}</b> 戶</span>
+            <span>登記車輛：<b className="text-blue-600 font-bold text-base">{totalVehicles}</b> 輛</span>
+            <span>車輛照片：<b className="text-emerald-600 font-bold text-base">{totalPhotos}</b> 張</span>
+          </div>
+          <button
+            onClick={downloadTemplate}
+            className="text-blue-600 hover:underline flex items-center gap-1.5 font-medium"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            下載 Excel 範本
+          </button>
+        </div>
+
+        {/* 住戶列表 */}
+        {filteredResidents.length === 0 ? (
+          <div className="text-center py-16 bg-white rounded-2xl border border-slate-200">
+            <Car className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+            <p className="text-slate-500 text-base">沒有找到相符的住戶或車輛資料</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredResidents.map((r) => (
+              <div
+                key={r.id}
+                className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition flex flex-col justify-between"
               >
                 <div>
-                  {/* 住戶 ID 與操作選單 */}
-                  <div className="flex justify-between items-start gap-4 mb-4">
-                    <span className="bg-indigo-500/10 text-indigo-300 text-xs sm:text-sm font-bold px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-xl border border-indigo-500/20 shadow-sm">
-                      {resident.id}
-                    </span>
-                    
-                    <div className="flex items-center gap-1 opacity-100 sm:opacity-80 sm:group-hover:opacity-100 transition-opacity">
-                      <button 
-                        onClick={() => openEditModal(resident)}
-                        className="p-2 text-slate-400 hover:text-indigo-400 hover:bg-indigo-950/40 rounded-lg transition-all border border-transparent hover:border-indigo-500/20 cursor-pointer"
-                        title="編輯住戶"
+                  {/* 住戶標題與操作 */}
+                  <div className="flex items-start justify-between pb-3 border-b border-slate-100">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 bg-blue-50 text-blue-600 rounded-lg">
+                        <Building className="w-5 h-5" />
+                      </div>
+                      <h2 className="font-black text-slate-900 text-xl tracking-tight">{r.unit}</h2>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => openEditModal(r)}
+                        className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
+                        title="編輯"
                       >
-                        <Edit2 className="w-4 h-4" />
+                        <Edit3 className="w-4 h-4" />
                       </button>
-                      <button 
-                        onClick={() => openDeleteConfirm(resident)}
-                        className="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 rounded-lg transition-all border border-transparent hover:border-rose-500/20 cursor-pointer"
-                        title="刪除住戶"
+                      <button
+                        onClick={() => handleDeleteResident(r.id)}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                        title="刪除"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -563,427 +454,340 @@ export default function App() {
                   </div>
 
                   {/* 成員列表 */}
-                  <div className="mb-4">
-                    <h4 className="text-xs text-slate-500 font-bold mb-2 flex items-center gap-1">
-                      <Users className="w-3.5 h-3.5" /> 住戶成員
-                    </h4>
-                    <div className="flex flex-wrap gap-1.5">
-                      {resident.members && resident.members.length > 0 ? (
-                        resident.members.map((member, i) => (
-                          <span 
-                            key={i}
-                            className="bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-[11px] sm:text-xs px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg border border-slate-700/50 shadow-inner flex items-center gap-1"
-                          >
-                            <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
-                            {member}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-xs text-slate-600 italic">無登記成員</span>
-                      )}
-                    </div>
+                  <div className="mt-3 flex items-center gap-2 text-base text-slate-700 font-medium">
+                    <Users className="w-5 h-5 text-slate-400 shrink-0" />
+                    <span>{r.members?.length ? r.members.join('、') : '未登記成員'}</span>
                   </div>
 
-                  {/* 車牌列表 */}
-                  <div className="mb-4">
-                    <h4 className="text-xs text-slate-500 font-bold mb-2 flex items-center gap-1">
-                      <CreditCard className="w-3.5 h-3.5" /> 登記車牌
-                    </h4>
-                    <div className="flex flex-wrap gap-1.5">
-                      {resident.licensePlates && resident.licensePlates.length > 0 ? (
-                        resident.licensePlates.map((plate, i) => (
-                          <span 
-                            key={i}
-                            className="bg-slate-900 border-2 border-slate-700 text-slate-200 font-mono text-[11px] sm:text-xs font-black tracking-wider px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-md shadow-inner flex items-center gap-1 hover:border-indigo-500 hover:text-white transition-all cursor-default"
+                  {/* 車輛資訊卡片（含車牌、車位與照片縮圖） */}
+                  <div className="mt-4 space-y-2.5">
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                      登記車輛與車位
+                    </p>
+                    {(!r.plates || r.plates.length === 0) ? (
+                      <p className="text-sm text-slate-400 italic">無登記車輛</p>
+                    ) : (
+                      r.plates.map((plate, pIdx) => {
+                        const slot = r.parkingSlots?.[pIdx];
+                        const photo = r.carPhotos?.[pIdx];
+                        return (
+                          <div
+                            key={pIdx}
+                            className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100"
                           >
-                            <div className="w-2 h-2 rounded-full bg-indigo-500 shadow-[0_0_5px_rgba(99,102,241,1)]"></div>
-                            {plate}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-xs text-slate-600 italic">無登記車牌</span>
-                      )}
-                    </div>
+                            <div className="flex items-center gap-3">
+                              {photo ? (
+                                <img
+                                  src={photo}
+                                  alt="車輛照片"
+                                  onClick={() => setViewingPhoto(photo)}
+                                  className="w-12 h-12 object-cover rounded-xl cursor-pointer hover:opacity-80 transition border border-slate-200"
+                                  title="點擊放大檢視"
+                                />
+                              ) : (
+                                <div className="w-12 h-12 rounded-xl bg-slate-200 flex items-center justify-center text-slate-400">
+                                  <ImageIcon className="w-6 h-6" />
+                                </div>
+                              )}
+                              <div>
+                                <span className="font-mono font-black text-slate-900 text-lg sm:text-xl tracking-wider">
+                                  {plate}
+                                </span>
+                                {slot && (
+                                  <span className="block text-sm text-blue-600 font-bold mt-0.5">
+                                    車位: {slot}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            {photo && (
+                              <button
+                                onClick={() => setViewingPhoto(photo)}
+                                className="p-1.5 text-slate-400 hover:text-blue-600 transition"
+                                title="查看大圖"
+                              >
+                                <Eye className="w-5 h-5" />
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
                   </div>
                 </div>
 
                 {/* 備註 */}
-                <div className="mt-4 pt-3 border-t border-slate-800/60">
-                  <div className="text-xs text-slate-500 font-bold mb-1 flex items-center gap-1">
-                    <FileText className="w-3.5 h-3.5" /> 備註說明
+                {r.note && (
+                  <div className="mt-4 pt-3 border-t border-slate-100 text-sm text-slate-600 font-medium">
+                    備註：{r.note}
                   </div>
-                  <p className="text-xs text-slate-400 leading-relaxed italic bg-slate-950/20 p-2 rounded-lg border border-slate-900/30">
-                    {resident.notes || '無'}
-                  </p>
-                </div>
+                )}
               </div>
             ))}
-          </section>
-        ) : (
-          <section className="glass-effect p-12 text-center rounded-3xl max-w-lg mx-auto shadow-xl">
-            <AlertCircle className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-            <h3 className="text-lg font-bold text-slate-300">查無相符資料</h3>
-            <p className="text-xs text-slate-500 mt-2">請更換關鍵字重新搜尋，或點擊右上角「Excel 批次管理」匯入資料。</p>
-            {searchQuery && (
-              <button 
-                onClick={() => setSearchQuery('')}
-                className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-indigo-400 text-xs font-semibold rounded-xl transition-all"
-              >
-                重設搜尋過濾
-              </button>
-            )}
-          </section>
+          </div>
         )}
       </main>
 
-      {/* CRUD 編輯 Modal */}
-      {activeModal === 'edit' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-xl shadow-2xl overflow-hidden animate-zoom-in">
-            {/* Modal Header */}
-            <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/40">
-              <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                <Building2 className="w-5 h-5 text-indigo-400" />
-                編輯住戶資料：{selectedResident?.id}
+      {/* 編輯/新增住戶 Modal */}
+      {isModalOpen && editingResident && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h3 className="font-bold text-xl text-slate-900">
+                {residents.some(r => r.id === editingResident.id) ? '編輯住戶資料' : '新增住戶資料'}
               </h3>
-              <button onClick={() => setActiveModal(null)} className="p-1 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800">
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Modal Body */}
-            <form onSubmit={handleSaveResident} className="p-6 space-y-5 max-h-[70vh] overflow-y-auto">
-              
-              {/* 住戶代號 */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-400 flex items-center gap-1">
-                  住戶代號 <span className="text-rose-500">*</span>
-                </label>
-                <input 
-                  type="text" 
-                  disabled={activeModal === 'edit'}
-                  placeholder="例如：A棟-12F-1、C棟-08F-2"
-                  value={formId}
-                  onChange={(e) => setFormId(e.target.value)}
-                  className={`w-full px-4 py-2.5 bg-slate-950 border rounded-xl text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all ${
-                    formErrors.id ? 'border-rose-500 focus:border-rose-500' : 'border-slate-800'
-                  } ${activeModal === 'edit' ? 'opacity-60 cursor-not-allowed' : ''}`}
+            <form onSubmit={handleSaveResident} className="mt-4 space-y-4">
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1">住戶代號 *</label>
+                <input
+                  type="text"
+                  required
+                  value={editingResident.unit}
+                  onChange={(e) => setEditingResident({ ...editingResident, unit: e.target.value })}
+                  placeholder="例如：A棟-12F-1"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-base"
                 />
-                {formErrors.id && (
-                  <p className="text-xs text-rose-500 flex items-center gap-1"><AlertCircle className="w-3.5 h-3.5" /> {formErrors.id}</p>
-                )}
               </div>
 
-              {/* 成員列表 (動態) */}
-              <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <label className="text-xs font-bold text-slate-400 flex items-center gap-1">
-                    住戶成員姓名/稱謂
-                  </label>
-                  <button 
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1">成員姓名（以頓號、逗號隔開）</label>
+                <input
+                  type="text"
+                  value={editingResident.membersText}
+                  onChange={(e) => setEditingResident({ ...editingResident, membersText: e.target.value })}
+                  placeholder="例如：王大明、李美華"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-base"
+                />
+              </div>
+
+              {/* 車輛、車位與照片清單 */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-bold text-slate-700">登記車輛清單</label>
+                  <button
                     type="button"
-                    onClick={handleAddMemberField}
-                    className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-semibold cursor-pointer"
+                    onClick={() => {
+                      setEditingResident({
+                        ...editingResident,
+                        vehicles: [...editingResident.vehicles, { plate: '', slot: '', photo: '' }]
+                      });
+                    }}
+                    className="text-sm text-blue-600 font-bold hover:underline flex items-center gap-1"
                   >
-                    <PlusCircle className="w-4 h-4" /> 新增成員
+                    <Plus className="w-4 h-4" /> 增加一輛車
                   </button>
                 </div>
-                
-                <div className="space-y-2">
-                  {formMembers.map((member, index) => (
-                    <div key={index} className="flex items-center gap-2 animate-slide-down">
-                      <input 
-                        type="text" 
-                        placeholder={`成員姓名，如：張偉明 (屋主)、林淑芬 (太太)`}
-                        value={member}
-                        onChange={(e) => handleMemberChange(index, e.target.value)}
-                        className="flex-1 px-4 py-2 bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
-                      />
-                      <button 
-                        type="button"
-                        onClick={() => handleRemoveMemberField(index)}
-                        className="p-2 text-slate-500 hover:text-rose-400 transition-all cursor-pointer"
-                        title="移除成員"
-                      >
-                        <MinusCircle className="w-5 h-5" />
-                      </button>
+
+                <div className="space-y-3">
+                  {editingResident.vehicles.map((v, idx) => (
+                    <div key={idx} className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                      <div className="flex items-center justify-between text-sm font-bold text-slate-600">
+                        <span>車輛 #{idx + 1}</span>
+                        {editingResident.vehicles.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const next = editingResident.vehicles.filter((_, i) => i !== idx);
+                              setEditingResident({ ...editingResident, vehicles: next });
+                            }}
+                            className="text-rose-500 hover:underline text-xs"
+                          >
+                            移除此車
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="text"
+                          placeholder="車牌 (如 ABC-1234)"
+                          value={v.plate}
+                          onChange={(e) => {
+                            const next = [...editingResident.vehicles];
+                            next[idx] = { ...next[idx], plate: e.target.value };
+                            setEditingResident({ ...editingResident, vehicles: next });
+                          }}
+                          className="px-3 py-2 rounded-lg border border-slate-200 text-base focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                        <input
+                          type="text"
+                          placeholder="車位編號 (如 B1-101)"
+                          value={v.slot}
+                          onChange={(e) => {
+                            const next = [...editingResident.vehicles];
+                            next[idx] = { ...next[idx], slot: e.target.value };
+                            setEditingResident({ ...editingResident, vehicles: next });
+                          }}
+                          className="px-3 py-2 rounded-lg border border-slate-200 text-base focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      {/* 上傳照片區 */}
+                      <div className="flex items-center gap-3 pt-1">
+                        {v.photo ? (
+                          <div className="relative">
+                            <img
+                              src={v.photo}
+                              alt="車輛照片"
+                              className="w-14 h-14 object-cover rounded-lg border border-slate-300"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const next = [...editingResident.vehicles];
+                                next[idx] = { ...next[idx], photo: '' };
+                                setEditingResident({ ...editingResident, vehicles: next });
+                              }}
+                              className="absolute -top-1.5 -right-1.5 bg-rose-500 text-white rounded-full p-0.5 shadow"
+                              title="移除照片"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ) : (
+                          <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 transition shadow-sm">
+                            <Upload className="w-3.5 h-3.5" /> 上傳車輛照片
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => handlePhotoUpload(idx, e.target.files[0])}
+                            />
+                          </label>
+                        )}
+                        <span className="text-xs text-slate-400">
+                          {v.photo ? '已上傳（自動壓縮保存）' : '可上傳此車外觀照片'}
+                        </span>
+                      </div>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* 車牌列表 (動態) */}
-              <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <label className="text-xs font-bold text-slate-400 flex items-center gap-1">
-                    登記車牌號碼
-                  </label>
-                  <button 
-                    type="button"
-                    onClick={handleAddPlateField}
-                    className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-semibold cursor-pointer"
-                  >
-                    <PlusCircle className="w-4 h-4" /> 新增車牌
-                  </button>
-                </div>
-                
-                <div className="space-y-2">
-                  {formPlates.map((plate, index) => (
-                    <div key={index} className="flex items-center gap-2 animate-slide-down">
-                      <input 
-                        type="text" 
-                        placeholder="例如：ABC-1234 或 9988-ZZ"
-                        value={plate}
-                        onChange={(e) => handlePlateChange(index, e.target.value)}
-                        className="flex-1 px-4 py-2 bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-mono tracking-wider transition-all"
-                      />
-                      <button 
-                        type="button"
-                        onClick={() => handleRemovePlateField(index)}
-                        className="p-2 text-slate-500 hover:text-rose-400 transition-all cursor-pointer"
-                        title="移除車牌"
-                      >
-                        <MinusCircle className="w-5 h-5" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* 備註說明 */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-slate-400 flex items-center gap-1">
-                  備註與管理說明
-                </label>
-                <textarea 
-                  placeholder="輸入車位編號、特殊交代或聯絡資訊..."
-                  value={formNotes}
-                  onChange={(e) => setFormNotes(e.target.value)}
-                  rows="3"
-                  className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all text-sm"
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1">備註</label>
+                <textarea
+                  value={editingResident.note}
+                  onChange={(e) => setEditingResident({ ...editingResident, note: e.target.value })}
+                  placeholder="備註資訊..."
+                  rows={2}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-base"
                 />
               </div>
 
-              {/* Modal Footer */}
-              <div className="pt-4 border-t border-slate-800 flex justify-end gap-3 bg-slate-900/10">
-                <button 
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
                   type="button"
-                  onClick={() => setActiveModal(null)}
-                  className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl transition-all cursor-pointer"
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-sm font-bold text-slate-600 hover:bg-slate-50"
                 >
                   取消
                 </button>
-                <button 
+                <button
                   type="submit"
-                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl shadow-lg shadow-indigo-600/20 hover:shadow-indigo-600/30 transition-all cursor-pointer"
+                  className="px-5 py-2 rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 shadow-sm"
                 >
                   儲存
                 </button>
               </div>
-
             </form>
           </div>
         </div>
       )}
 
-      {/* Excel 批次管理 Modal */}
-      {activeModal === 'excel' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden animate-zoom-in">
-            {/* Modal Header */}
-            <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/40">
-              <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                <FileSpreadsheet className="w-5 h-5 text-emerald-400" />
-                Excel 批次檔案管理
-              </h3>
-              <button onClick={() => setActiveModal(null)} className="p-1 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800">
-                <X className="w-5 h-5" />
+      {/* 清除/重設 Modal */}
+      {isClearModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-amber-600">
+              <AlertTriangle className="w-6 h-6" />
+              <h3 className="font-bold text-lg text-slate-900">資料管理選項</h3>
+            </div>
+            <p className="text-sm text-slate-500">
+              請選擇您希望進行的資料操作方式：
+            </p>
+            <div className="space-y-2 pt-2">
+              <button
+                onClick={() => exportBackupJson(residents)}
+                className="w-full py-2.5 px-4 text-sm font-semibold rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 transition text-left flex items-center justify-between"
+              >
+                <span>完整備份所有資料 (含全部照片 JSON)</span>
+                <Download className="w-4 h-4 text-blue-500" />
+              </button>
+              <button
+                onClick={() => backupInputRef.current?.click()}
+                className="w-full py-2.5 px-4 text-sm font-semibold rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition text-left flex items-center justify-between"
+              >
+                <span>匯入還原完整備份 (JSON 檔)</span>
+                <Upload className="w-4 h-4 text-emerald-500" />
+              </button>
+              <input
+                type="file"
+                ref={backupInputRef}
+                onChange={handleBackupImport}
+                accept=".json"
+                className="hidden"
+              />
+              <button
+                onClick={() => {
+                  setResidents(initialMockResidents);
+                  setIsClearModalOpen(false);
+                }}
+                className="w-full py-2.5 px-4 text-sm font-semibold rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition text-left flex items-center justify-between"
+              >
+                <span>還原預設測試資料 (6 筆)</span>
+                <RotateCcw className="w-4 h-4 text-slate-400" />
+              </button>
+              <button
+                onClick={() => {
+                  setResidents([]);
+                  setIsClearModalOpen(false);
+                }}
+                className="w-full py-2.5 px-4 text-sm font-semibold rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-100 transition text-left flex items-center justify-between"
+              >
+                <span>清空所有資料（空白重匯）</span>
+                <Trash2 className="w-4 h-4 text-rose-500" />
               </button>
             </div>
-
-            {/* Modal Body */}
-            <div className="p-6 space-y-6">
-              
-              {/* 下載與說明區 */}
-              <div className="p-4 bg-indigo-950/20 border border-indigo-500/25 rounded-2xl space-y-3">
-                <h4 className="text-xs font-bold text-indigo-300 flex items-center gap-1.5">
-                  <HelpCircle className="w-4 h-4" /> 欄位與格式對照說明
-                </h4>
-                <p className="text-xs text-slate-300 leading-relaxed">
-                  匯入 Excel 必須符合以下欄位順序：
-                  <br />
-                  <span className="font-semibold text-indigo-200">1. 住戶代號</span> (必填) ➜ 
-                  <span className="font-semibold text-indigo-200"> 2. 成員姓名/稱謂</span> ➜ 
-                  <span className="font-semibold text-indigo-200"> 3. 車牌號碼</span> ➜ 
-                  <span className="font-semibold text-indigo-200"> 4. 備註</span>
-                  <br />
-                  <span className="text-slate-400">※ 成員與車牌若有多筆，支援以逗號、分號或換行分隔。</span>
-                </p>
-                <div className="pt-1">
-                  <button 
-                    onClick={handleDownloadTemplate}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 border border-indigo-500/40 hover:border-indigo-500/60 text-xs font-bold rounded-xl transition-all cursor-pointer"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    下載 Excel 格式範本
-                  </button>
-                </div>
-              </div>
-
-              {/* 拖曳上傳區 */}
-              <div 
-                onDragOver={handleDragOver}
-                onDragLeave={handleDragLeave}
-                onDrop={handleDrop}
-                onClick={() => fileInputRef.current?.click()}
-                className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all duration-300 flex flex-col items-center justify-center group ${
-                  isDragging 
-                    ? 'border-indigo-500 bg-indigo-950/20 shadow-[0_0_15px_rgba(99,102,241,0.15)]' 
-                    : 'border-slate-800 hover:border-slate-700 bg-slate-950/40 hover:bg-slate-950/60'
-                }`}
-              >
-                <input 
-                  type="file" 
-                  ref={fileInputRef}
-                  onChange={handleFileChange}
-                  accept=".xlsx, .xls"
-                  className="hidden"
-                />
-                <div className="p-4 bg-slate-900 rounded-2xl border border-slate-800 text-slate-400 group-hover:text-indigo-400 group-hover:border-indigo-500/30 transition-all duration-300 shadow-inner mb-4">
-                  <Upload className="w-8 h-8" />
-                </div>
-                <h4 className="text-sm font-bold text-slate-200">拖曳 Excel 檔案至此處，或點擊選取檔案</h4>
-                <p className="text-xs text-slate-500 mt-1.5">支援格式：.xlsx, .xls</p>
-              </div>
-
-              {/* 資料備份匯出 */}
-              <div className="pt-4 border-t border-slate-800 flex flex-col sm:flex-row gap-3">
-                <div className="flex-1 flex flex-col justify-center">
-                  <h4 className="text-xs font-bold text-slate-400">備份與下載對照表</h4>
-                  <p className="text-[10px] text-slate-500 mt-0.5">將目前系統中所有的住戶及車牌資訊匯出存檔為 Excel。</p>
-                </div>
-                
-                <button 
-                  onClick={handleExport}
-                  className="flex items-center justify-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold rounded-xl shadow-lg shadow-emerald-600/20 hover:shadow-emerald-600/30 transition-all border border-emerald-500 hover:border-emerald-400 cursor-pointer"
-                >
-                  <Download className="w-4 h-4" />
-                  匯出完整 Excel
-                </button>
-              </div>
-
-            </div>
+            <button
+              onClick={() => setIsClearModalOpen(false)}
+              className="w-full mt-3 py-2 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
+            >
+              取消
+            </button>
           </div>
         </div>
       )}
 
-      {/* 刪除確認 Modal */}
-      {activeModal === 'delete_confirm' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-sm shadow-2xl overflow-hidden animate-zoom-in">
-            {/* Modal Body */}
-            <div className="p-6 text-center space-y-4">
-              <div className="p-3 bg-rose-500/10 text-rose-400 rounded-full border border-rose-500/20 w-fit mx-auto">
-                <Trash2 className="w-8 h-8" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-white">確認刪除住戶？</h3>
-                <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-                  您即將刪除住戶代號 <span className="font-bold text-indigo-400">"{selectedResident?.id}"</span> 的全部成員姓名與車牌號碼對照資料。此動作無法復原。
-                </p>
-              </div>
-            </div>
-
-            {/* Modal Footer */}
-            <div className="p-4 bg-slate-950/20 border-t border-slate-800/60 flex items-center justify-center gap-3">
-              <button 
-                onClick={() => setActiveModal(null)}
-                className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl transition-all cursor-pointer"
-              >
-                取消
-              </button>
-              <button 
-                onClick={handleDeleteResident}
-                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold rounded-xl shadow-lg shadow-rose-600/20 hover:shadow-rose-600/30 transition-all cursor-pointer animate-pulse-once"
-              >
-                確認刪除
-              </button>
-            </div>
+      {/* 圖片大圖檢視 Modal */}
+      {viewingPhoto && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setViewingPhoto(null)}
+        >
+          <div className="relative max-w-4xl w-full" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => setViewingPhoto(null)}
+              className="absolute -top-10 right-0 text-white hover:text-slate-200 p-1"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <img
+              src={viewingPhoto}
+              alt="車輛大圖"
+              className="w-full h-auto max-h-[85vh] object-contain rounded-2xl shadow-2xl bg-black"
+            />
           </div>
         </div>
       )}
-
-      {/* 清除與重設確認 Modal */}
-      {activeModal === 'clear_confirm' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md shadow-2xl overflow-hidden animate-zoom-in">
-            {/* Modal Header */}
-            <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/40">
-              <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                <RotateCcw className="w-5 h-5 text-rose-400" />
-                資料清理與重設選項
-              </h3>
-              <button onClick={() => setActiveModal(null)} className="p-1 text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Modal Body */}
-            <div className="p-6 space-y-4">
-              <p className="text-xs text-slate-300 leading-relaxed">
-                請選擇您要執行的資料重設動作。此動作將會影響 LocalStorage 中的快取資料：
-              </p>
-              
-              <div className="space-y-3">
-                <button
-                  onClick={() => {
-                    setResidents(initialResidents);
-                    showAlert('success', '已成功還原為預設範例資料！');
-                    setActiveModal(null);
-                  }}
-                  className="w-full p-4 bg-indigo-950/20 hover:bg-indigo-950/40 border border-indigo-500/20 hover:border-indigo-500/40 text-left rounded-2xl transition-all group cursor-pointer"
-                >
-                  <div className="flex justify-between items-center bg-transparent">
-                    <span className="text-sm font-bold text-indigo-300 group-hover:text-indigo-200">還原系統預設資料</span>
-                    <RotateCcw className="w-4 h-4 text-indigo-400" />
-                  </div>
-                  <p className="text-[11px] text-slate-400 mt-1">
-                    將清除當前所有修改，並重新載入 6 筆系統內建的測試住戶與車牌對照資料。
-                  </p>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setResidents([]);
-                    showAlert('success', '已成功清空系統所有住戶資料！');
-                    setActiveModal(null);
-                  }}
-                  className="w-full p-4 bg-rose-950/20 hover:bg-rose-950/40 border border-rose-500/20 hover:border-rose-500/40 text-left rounded-2xl transition-all group cursor-pointer"
-                >
-                  <div className="flex justify-between items-center bg-transparent">
-                    <span className="text-sm font-bold text-rose-300 group-hover:text-rose-200">清空所有系統資料</span>
-                    <Trash2 className="w-4 h-4 text-rose-400" />
-                  </div>
-                  <p className="text-[11px] text-slate-400 mt-1">
-                    將系統清空為「完全空白」狀態。適用於管理員要從頭開始錄入或匯入全新真實資料。
-                  </p>
-                </button>
-              </div>
-            </div>
-
-            {/* Modal Footer */}
-            <div className="p-4 bg-slate-950/20 border-t border-slate-800/60 flex items-center justify-end">
-              <button 
-                onClick={() => setActiveModal(null)}
-                className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl transition-all cursor-pointer"
-              >
-                取消關閉
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
     </div>
   );
 }

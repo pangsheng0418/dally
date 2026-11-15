@@ -1,5 +1,22 @@
 @import "tailwindcss";
 
+/* 全域字體縮放層級 */
+html {
+  font-size: 18px; /* 預設採用大字體 */
+}
+
+html.font-size-normal {
+  font-size: 16px;
+}
+
+html.font-size-large {
+  font-size: 18px;
+}
+
+html.font-size-xlarge {
+  font-size: 20.5px;
+}
+
 /* 語音辨識錄音時的按鈕呼吸動畫 */
 @keyframes pulse-ring {
   0% {

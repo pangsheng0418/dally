@@ -1,273 +1,221 @@
 import * as XLSX from 'xlsx';
 
-/**
- * 中文數字字元對照表
- */
-const zhChars = {
-  '零': 0, '一': 1, '二': 2, '兩': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9,
-  '十': 10, '百': 100
+// 圖片自動壓縮函數（提升為 960px 高清解析度，JPEG 0.82 高畫質）
+export const compressImage = (file, maxWidth = 960, quality = 0.82) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 };
 
-/**
- * 將簡單中文數字（如：十二、五、二十一）轉換為阿拉伯數字
- */
-export function zhToNum(zhStr) {
-  if (!zhStr) return '';
-  const str = zhStr.trim();
-  if (/^\d+$/.test(str)) return parseInt(str, 10);
-  
-  let val = 0;
-  let temp = 0;
-  for (let i = 0; i < str.length; i++) {
-    const char = str[i];
-    const num = zhChars[char];
-    if (num === undefined) {
-      return str; // 含有非中文數字，直接返回原字串
-    }
-    if (num === 10) {
-      if (temp === 0) temp = 1;
-      val += temp * 10;
-      temp = 0;
-    } else if (num === 100) {
-      if (temp === 0) temp = 1;
-      val += temp * 100;
-      temp = 0;
-    } else {
-      temp = num;
-    }
-  }
-  val += temp;
-  return val;
-}
-
-/**
- * 語音辨識文字格式化優化
- * 例如：將「A棟十二樓之一」轉為「A棟-12F-1」，或將口述的車牌移除空格並轉大寫
- */
-export function normalizeVoiceInput(text) {
+// 模糊清理搜尋字串
+export const cleanForFuzzy = (text) => {
   if (!text) return '';
-  
-  // 1. 去除尾部常見標點符號
-  let cleaned = text.trim().replace(/[。，？！?.、]/g, '');
-  
-  // 2. 處理住戶代號口語轉換：例如「A棟十二樓之一」、「B棟五樓之二」、「C棟三樓」
-  // 比對格式如：{A-Z/數字/中文}棟 {中文數字/阿拉伯數字}樓之{中文數字/阿拉伯數字}
-  const buildingFloorRegex = /([A-Za-z0-9一二三四五六七八九十百]+棟)?\s*([0-9一二三四五六七八九十百]+)\s*樓\s*之\s*([0-9一二三四五六七八九十]+)/i;
-  const buildingFloorRegexSimple = /([A-Za-z0-9一二三四五六七八九十百]+棟)?\s*([0-9一二三四五六七八九十百]+)\s*樓/i;
-  
-  let match = cleaned.match(buildingFloorRegex);
-  if (match) {
-    const building = match[1] || '';
-    const floorZh = match[2];
-    const roomZh = match[3];
-    
-    const floorNum = zhToNum(floorZh);
-    const roomNum = zhToNum(roomZh);
-    
-    const prefix = building ? `${building}-` : '';
-    return `${prefix}${floorNum}F-${roomNum}`;
-  }
-  
-  match = cleaned.match(buildingFloorRegexSimple);
-  if (match) {
-    const building = match[1] || '';
-    const floorZh = match[2];
-    
-    const floorNum = zhToNum(floorZh);
-    const prefix = building ? `${building}-` : '';
-    return `${prefix}${floorNum}F`;
-  }
-  
-  // 3. 常見的車牌語音處理：英文和數字之間可能有空格，例如「A B C 一二三四」
-  // 如果字串包含英文與數字，我們把所有空格移除，並把中文數字轉為阿拉伯數字，然後轉大寫
-  if (/[a-zA-Z]/.test(cleaned)) {
-    // 移除所有空格
-    let noSpaces = cleaned.replace(/\s+/g, '');
-    // 將其中的中文數字轉換為阿拉伯數字
-    let converted = '';
-    for (let char of noSpaces) {
-      if (zhChars[char] !== undefined && zhChars[char] < 10) {
-        converted += zhChars[char];
-      } else {
-        converted += char;
-      }
-    }
-    return converted.toUpperCase();
-  }
-  
-  return cleaned;
-}
+  return String(text)
+    .toLowerCase()
+    .replace(/[\s\-_棟樓之fF]/g, '');
+};
 
-/**
- * 三向超模糊搜尋過濾（優化語音輸入容錯率）
- */
-export function filterResidents(residents, query) {
-  if (!query) return residents;
-  
-  const q = query.trim().toLowerCase();
-  
-  // 超模糊清理函數：移除所有空格、減號、底線，以及常見的住戶單位字詞「棟、樓、之、f、F」
-  const cleanForFuzzy = (str) => {
-    if (!str) return '';
-    return str
-      .toLowerCase()
-      .replace(/[\s\-_棟樓之fF]/g, '') // 移除空格、底線、減號、以及單位字元
-      .replace(/[^a-z0-9\u4e00-\u9fa5]/gi, ''); // 只保留英數與中文字元
-  };
+// 支援住戶、成員、車牌、車位多向模糊搜尋
+export const filterResidents = (residents, query) => {
+  if (!query || !query.trim()) return residents;
+  const cleanQ = cleanForFuzzy(query);
 
-  const qFuzzy = cleanForFuzzy(q);
+  return residents.filter((r) => {
+    const matchUnit = cleanForFuzzy(r.unit).includes(cleanQ);
+    const matchMembers = r.members?.some((m) => cleanForFuzzy(m).includes(cleanQ));
+    const matchPlates = r.plates?.some((p) => cleanForFuzzy(p).includes(cleanQ));
+    const matchSlots = r.parkingSlots?.some((s) => cleanForFuzzy(s).includes(cleanQ));
+    const matchNote = cleanForFuzzy(r.note).includes(cleanQ);
 
-  return residents.filter(item => {
-    // 1. 比對住戶代號
-    const itemIdLower = item.id.toLowerCase();
-    if (itemIdLower.includes(q)) return true;
-    
-    const itemIdFuzzy = cleanForFuzzy(item.id);
-    if (qFuzzy && itemIdFuzzy.includes(qFuzzy)) return true;
-    
-    // 2. 比對成員姓名
-    const matchMember = item.members.some(member => {
-      const memberLower = member.toLowerCase();
-      if (memberLower.includes(q)) return true;
-      
-      const memberFuzzy = cleanForFuzzy(member);
-      return qFuzzy && memberFuzzy.includes(qFuzzy);
-    });
-    if (matchMember) return true;
-    
-    // 3. 比對車牌號碼 (移除減號後的模糊比對)
-    const matchPlate = item.licensePlates.some(plate => {
-      const plateLower = plate.toLowerCase();
-      if (plateLower.includes(q)) return true;
-      
-      const plateFuzzy = cleanForFuzzy(plate);
-      return qFuzzy && plateFuzzy.includes(qFuzzy);
-    });
-    if (matchPlate) return true;
-    
-    // 4. 比對備註
-    if (item.notes) {
-      const notesLower = item.notes.toLowerCase();
-      if (notesLower.includes(q)) return true;
-      
-      const notesFuzzy = cleanForFuzzy(item.notes);
-      return qFuzzy && notesFuzzy.includes(qFuzzy);
-    }
-    
-    return false;
+    return matchUnit || matchMembers || matchPlates || matchSlots || matchNote;
   });
-}
+};
 
-/**
- * 分隔字串並清理空白
- * 支援逗號 (全半形)、分號 (全半形)、換行、斜線等
- */
-export function splitAndClean(str) {
-  if (!str) return [];
-  return str
-    .split(/[\n,;，；\/\\|]+/)
-    .map(s => s.trim())
-    .filter(Boolean);
-}
+// 格式化語音辨識文字
+export const formatSpeechText = (text) => {
+  if (!text) return '';
+  let formatted = text.trim();
+  const digitMap = {
+    '零': 0, '一': 1, '二': 2, '兩': 2, '三': 3, '四': 4,
+    '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10
+  };
+  formatted = formatted.replace(/([一二兩三四五六七八九十]+)樓之([一二兩三四五六七八九十\d]+)/g, (match, p1, p2) => {
+    let floor = digitMap[p1] || p1;
+    let room = digitMap[p2] || p2;
+    return `${floor}F-${room}`;
+  });
+  return formatted;
+};
 
-/**
- * 解析上傳的 Excel 檔案
- */
-export function parseExcelFile(file) {
+// 解析 Excel 檔案（支援車位編號與車輛照片）
+export const parseExcelFile = (file) => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
         const data = new Uint8Array(e.target.result);
         const workbook = XLSX.read(data, { type: 'array' });
-        const firstSheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[firstSheetName];
-        
-        // 讀取為二維陣列
-        const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-        if (rows.length <= 1) {
-          reject(new Error('Excel 檔案內無資料或僅有表頭'));
-          return;
-        }
-        
-        const importedData = [];
-        
-        // 從第二行開始解析 (跳過表頭)
-        for (let i = 1; i < rows.length; i++) {
-          const row = rows[i];
-          if (!row || row.length === 0) continue;
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const rawJson = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+
+        const parsed = rawJson.map((row, idx) => {
+          const unit = String(row['住戶代號'] || row['房號'] || row['住戶'] || `戶號-${idx + 1}`).trim();
           
-          const residentId = row[0] ? String(row[0]).trim() : '';
-          if (!residentId) continue; // 住戶代號是核心，不可為空
-          
-          const membersStr = row[1] ? String(row[1]) : '';
-          const platesStr = row[2] ? String(row[2]) : '';
-          const notes = row[3] ? String(row[3]).trim() : '';
-          
-          const members = splitAndClean(membersStr);
-          const licensePlates = splitAndClean(platesStr).map(p => p.toUpperCase());
-          
-          importedData.push({
-            id: residentId,
+          const rawMembers = String(row['成員姓名'] || row['姓名'] || row['成員'] || '');
+          const members = rawMembers ? rawMembers.split(/[,、/，\s]+/).filter(Boolean) : [];
+
+          const rawPlates = String(row['車牌號碼'] || row['車牌'] || '');
+          const plates = rawPlates ? rawPlates.split(/[,、/，\s]+/).map(p => p.toUpperCase().replace(/\s+/g, '')).filter(Boolean) : [];
+
+          const rawSlots = String(row['車位編號'] || row['車位'] || '');
+          const parkingSlots = rawSlots ? rawSlots.split(/[,、/，\s]+/).filter(Boolean) : [];
+
+          const rawPhotos = String(row['車輛照片'] || row['照片'] || '');
+          // 只有當包含 base64 數據時才解析為照片，其餘文字標記（如「已附照片」）不解析
+          const carPhotos = rawPhotos.includes('data:image')
+            ? rawPhotos.split(/[|]+/).filter(p => p.includes('data:image'))
+            : [];
+
+          const note = String(row['備註'] || '');
+
+          return {
+            id: `excel-${Date.now()}-${idx}`,
+            unit,
             members,
-            licensePlates,
-            notes: notes || '無備註'
-          });
-        }
-        
-        resolve(importedData);
-      } catch (error) {
-        reject(error);
+            plates,
+            parkingSlots,
+            carPhotos,
+            note
+          };
+        });
+
+        resolve(parsed);
+      } catch (err) {
+        reject(err);
       }
     };
-    reader.onerror = (error) => reject(error);
+    reader.onerror = reject;
     reader.readAsArrayBuffer(file);
   });
-}
+};
 
-/**
- * 匯出資料為 Excel 檔案
- */
-export function exportToExcel(residents, fileName = '大樓住戶車牌對照表.xlsx') {
-  const headers = ['住戶代號', '成員姓名/稱謂', '車牌號碼', '備註'];
-  
-  const data = residents.map(r => [
-    r.id,
-    r.members.join(', '),
-    r.licensePlates.join(', '),
-    r.notes || ''
-  ]);
-  
-  // 組合表頭與資料
-  const sheetData = [headers, ...data];
-  
-  const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, '住戶對照資料');
-  
-  // 自動調整欄寬
-  const maxLens = [15, 25, 25, 30];
-  worksheet['!cols'] = maxLens.map(w => ({ wch: w }));
-  
-  XLSX.writeFile(workbook, fileName);
-}
+// 匯出 Excel 檔案（嚴格防止超過 Excel 32767 單一儲存格字元上限）
+export const exportToExcel = (residents) => {
+  try {
+    const exportData = residents.map((r) => {
+      const photos = (r.carPhotos || []).filter(Boolean);
+      let photoCol = '';
+      if (photos.length > 0) {
+        const joined = photos.join('|');
+        // Excel 單一儲存格上限為 32767 字元
+        if (joined.length <= 32000) {
+          photoCol = joined;
+        } else {
+          photoCol = `已附照片 (${photos.length}張)`;
+        }
+      }
 
-/**
- * 下載 Excel 範本
- */
-export function downloadTemplate() {
-  const headers = ['住戶代號', '成員姓名/稱謂', '車牌號碼', '備註'];
-  const examples = [
-    ['A棟-12F-1', '張偉明 (屋主), 林淑芬 (太太)', 'ABC-1234, 5678-XY', '白天常不在家，機車位 B1-102。'],
-    ['B棟-05F-2', '陳建國 (屋主)\n陳冠宇 (兒子)', '9988-ZZ', '車位 B2-045。'],
-    ['C棟-03F-1', '林志強 (屋主)', '', '目前無汽車，使用腳踏車。']
+      return {
+        '住戶代號': r.unit || '',
+        '成員姓名': (r.members || []).join('、'),
+        '車牌號碼': (r.plates || []).join('、'),
+        '車位編號': (r.parkingSlots || []).join('、'),
+        '車輛照片': photoCol,
+        '備註': r.note || ''
+      };
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, '住戶對照表');
+    XLSX.writeFile(workbook, `住戶車輛對照表_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  } catch (err) {
+    console.error('匯出失敗:', err);
+    alert('匯出 Excel 失敗：' + (err.message || '未知錯誤'));
+  }
+};
+
+// 完整備份所有資料（包含所有照片原始檔案，無字數限制）
+export const exportBackupJson = (residents) => {
+  try {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(residents, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", `住戶完整備份(含照片)_${new Date().toISOString().slice(0, 10)}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  } catch (err) {
+    alert('備份失敗：' + err.message);
+  }
+};
+
+// 還原完整備份（含照片）
+export const importBackupJson = (file) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const parsed = JSON.parse(e.target.result);
+        if (Array.isArray(parsed)) {
+          resolve(parsed);
+        } else {
+          reject(new Error('備份檔案格式不正確'));
+        }
+      } catch (err) {
+        reject(err);
+      }
+    };
+    reader.onerror = reject;
+    reader.readAsText(file);
+  });
+};
+
+// 下載 Excel 範本
+export const downloadTemplate = () => {
+  const templateData = [
+    {
+      '住戶代號': 'A棟-12F-1',
+      '成員姓名': '王大明、李美華',
+      '車牌號碼': 'ABC-1234、XYZ-5678',
+      '車位編號': 'B1-101、B1-102',
+      '車輛照片': '',
+      '備註': '管委會主委'
+    },
+    {
+      '住戶代號': 'B棟-5F-2',
+      '成員姓名': '陳志豪',
+      '車牌號碼': 'EFG-9988',
+      '車位編號': 'B2-058',
+      '車輛照片': '',
+      '備註': '常態訪客請放行'
+    }
   ];
-  
-  const sheetData = [headers, ...examples];
-  const worksheet = XLSX.utils.aoa_to_sheet(sheetData);
+
+  const worksheet = XLSX.utils.json_to_sheet(templateData);
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, '匯入範本');
-  
-  worksheet['!cols'] = [15, 30, 30, 40].map(w => ({ wch: w }));
-  XLSX.writeFile(workbook, '大樓住戶匯入範本.xlsx');
-}
+  XLSX.utils.book_append_sheet(workbook, worksheet, '住戶範本');
+  XLSX.writeFile(workbook, '住戶車輛匯入範本.xlsx');
+};
