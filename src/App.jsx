@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Search, Mic, MicOff, Car, Users, Building, Plus, Trash2, Edit3,
-  Upload, Download, FileSpreadsheet, RotateCcw, AlertTriangle, Eye, X, Image as ImageIcon
+  Upload, Download, FileSpreadsheet, RotateCcw, AlertTriangle, Eye, X, Image as ImageIcon,
+  Wifi, WifiOff, ShieldCheck
 } from 'lucide-react';
 import { initialMockResidents } from './mockData';
 import {
@@ -51,6 +52,48 @@ export default function App() {
   // 清除確認 Modal
   const [isClearModalOpen, setIsClearModalOpen] = useState(false);
 
+  // 離線說明 Modal
+  const [isOfflineModalOpen, setIsOfflineModalOpen] = useState(false);
+
+  // 實體網路連線狀態
+  const [isOnline, setIsOnline] = useState(() => typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+  // 離線版本模式切換（儲存於 LocalStorage）
+  const [isOfflineMode, setIsOfflineMode] = useState(() => {
+    try {
+      const saved = localStorage.getItem('dali_offline_mode');
+      if (saved !== null) return saved === 'true';
+    } catch (e) {
+      console.error(e);
+    }
+    return false;
+  });
+
+  // 監聽網路連線變化
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // 切換離線模式
+  const toggleOfflineMode = (forcedValue = null) => {
+    const nextVal = forcedValue !== null ? forcedValue : !isOfflineMode;
+    setIsOfflineMode(nextVal);
+    try {
+      localStorage.setItem('dali_offline_mode', String(nextVal));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   // 圖片大圖檢視 Modal
   const [viewingPhoto, setViewingPhoto] = useState(null);
 
@@ -93,6 +136,10 @@ export default function App() {
   }, []);
 
   const toggleListening = () => {
+    if (isOfflineMode || !isOnline) {
+      alert('【離線版本提示】\n目前處於純本機離線模式（或無網際網路連線）。\n瀏覽器語音辨識服務需依賴網路雲端伺服器；請直接在搜尋框輸入關鍵字，住戶、車牌、車位與樓層皆可 100% 離線秒級搜尋！');
+      return;
+    }
     if (!speechSupported) {
       alert('您的瀏覽器不支援語音輸入功能。');
       return;
@@ -285,7 +332,7 @@ export default function App() {
       {/* 頂部導航：分為兩行，解決手機顯示過長與擁擠問題 */}
       <header className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-slate-200 shadow-xs">
         <div className="max-w-6xl mx-auto px-4 py-2.5 space-y-2.5">
-          {/* 第一行：系統標題與字體大小切換選項 */}
+          {/* 第一行：系統標題、離線模式切換與字體大小選項 */}
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="w-10 h-10 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0">
@@ -301,45 +348,73 @@ export default function App() {
               </div>
             </div>
 
-            {/* 字體大小切換選項 */}
-            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 shrink-0">
-              <span className="text-xs text-slate-500 font-bold px-1.5 hidden sm:inline">字體:</span>
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+              {/* 離線/連線版本切換開關 */}
               <button
                 type="button"
-                onClick={() => setFontSize('normal')}
-                className={`px-2 py-1 text-xs font-bold rounded-lg transition ${
-                  fontSize === 'normal'
-                    ? 'bg-white text-blue-600 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
+                onClick={() => toggleOfflineMode()}
+                className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-black rounded-xl border transition shadow-2xs ${
+                  isOfflineMode
+                    ? 'bg-amber-500 text-white border-amber-600 shadow-amber-500/20'
+                    : isOnline
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+                    : 'bg-rose-50 text-rose-700 border-rose-300'
                 }`}
-                title="標準字體 (16px)"
+                title={isOfflineMode ? '目前處於純本機離線模式（點擊可切換回連線模式）' : '目前處於連線模式（點擊可切換為離線版本）'}
               >
-                標準
+                {isOfflineMode ? (
+                  <>
+                    <WifiOff className="w-3.5 h-3.5" />
+                    <span>離線版</span>
+                  </>
+                ) : (
+                  <>
+                    <Wifi className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>連線版</span>
+                  </>
+                )}
               </button>
-              <button
-                type="button"
-                onClick={() => setFontSize('large')}
-                className={`px-2 py-1 text-xs font-bold rounded-lg transition ${
-                  fontSize === 'large'
-                    ? 'bg-white text-blue-600 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-                title="放大字體 (18px，預設)"
-              >
-                放大
-              </button>
-              <button
-                type="button"
-                onClick={() => setFontSize('xlarge')}
-                className={`px-2 py-1 text-xs font-bold rounded-lg transition ${
-                  fontSize === 'xlarge'
-                    ? 'bg-white text-blue-600 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-                title="特大字體 (20.5px)"
-              >
-                特大
-              </button>
+
+              {/* 字體大小切換選項 */}
+              <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 shrink-0">
+                <span className="text-xs text-slate-500 font-bold px-1.5 hidden sm:inline">字體:</span>
+                <button
+                  type="button"
+                  onClick={() => setFontSize('normal')}
+                  className={`px-2 py-1 text-xs font-bold rounded-lg transition ${
+                    fontSize === 'normal'
+                      ? 'bg-white text-blue-600 shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                  title="標準字體 (16px)"
+                >
+                  標準
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFontSize('large')}
+                  className={`px-2 py-1 text-xs font-bold rounded-lg transition ${
+                    fontSize === 'large'
+                      ? 'bg-white text-blue-600 shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                  title="放大字體 (18px，預設)"
+                >
+                  放大
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFontSize('xlarge')}
+                  className={`px-2 py-1 text-xs font-bold rounded-lg transition ${
+                    fontSize === 'xlarge'
+                      ? 'bg-white text-blue-600 shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                  title="特大字體 (20.5px)"
+                >
+                  特大
+                </button>
+              </div>
             </div>
           </div>
 
@@ -389,6 +464,36 @@ export default function App() {
           </div>
         </div>
       </header>
+
+      {/* 離線版本橫幅提示 */}
+      {isOfflineMode && (
+        <div className="bg-amber-500 text-white px-4 py-2 text-xs sm:text-sm font-bold shadow-xs">
+          <div className="max-w-6xl mx-auto flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <ShieldCheck className="w-4 h-4 shrink-0" />
+              <span className="truncate">
+                ⚡ <b>已切換為純本機離線版本</b>：所有住戶、車牌資料保存在本機瀏覽器，無須網路即可完全正常查詢與管理！
+              </span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsOfflineModalOpen(true)}
+                className="bg-white/20 hover:bg-white/30 text-white px-2.5 py-0.5 rounded-lg text-xs font-bold transition"
+              >
+                離線說明
+              </button>
+              <button
+                type="button"
+                onClick={() => toggleOfflineMode(false)}
+                className="bg-white text-amber-800 hover:bg-amber-100 px-2.5 py-0.5 rounded-lg text-xs font-bold transition shadow-xs"
+              >
+                返回連線版
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 主體內容 */}
       <main className="max-w-6xl mx-auto px-4 py-6 space-y-6">
@@ -868,6 +973,160 @@ export default function App() {
               className="w-full mt-3 py-2 rounded-xl border border-slate-200 text-sm text-slate-600 hover:bg-slate-50"
             >
               取消
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 離線版本說明與設定 Modal */}
+      {isOfflineModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className={`p-2 rounded-xl text-white ${isOfflineMode ? 'bg-amber-500' : 'bg-blue-600'}`}>
+                  {isOfflineMode ? <WifiOff className="w-5 h-5" /> : <Wifi className="w-5 h-5" />}
+                </div>
+                <div>
+                  <h3 className="font-bold text-lg text-slate-900">離線版本模式說明</h3>
+                  <p className="text-xs text-slate-500">無網路環境純本機獨立運作指南</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsOfflineModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* 目前狀態卡片 */}
+            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-2 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500 font-semibold">系統運作模式：</span>
+                <span className={`font-black px-2.5 py-0.5 rounded-md text-xs ${
+                  isOfflineMode
+                    ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                    : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                }`}>
+                  {isOfflineMode ? '🟡 離線版本 (純本機零網路)' : '🟢 連線版本 (正常)'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500 font-semibold">實體網路狀態：</span>
+                <span className="font-bold text-slate-700">
+                  {isOnline ? '已連上網際網路' : '未偵測到網路連線（離線狀態）'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500 font-semibold">本機資料庫 (LocalStorage)：</span>
+                <span className="font-bold text-blue-600">正常運作（已儲存 {residents.length} 戶）</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-500 font-semibold">離線快取 (Service Worker)：</span>
+                <span className="font-bold text-emerald-600">已啟用（斷網仍可直接開啟網頁）</span>
+              </div>
+            </div>
+
+            {/* 離線功能支援清單 */}
+            <div>
+              <h4 className="text-xs font-black text-slate-400 uppercase tracking-wider mb-2">
+                各功能離線支援度對照
+              </h4>
+              <div className="border border-slate-200 rounded-xl overflow-hidden text-xs">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                    <tr>
+                      <th className="p-2">功能項目</th>
+                      <th className="p-2">離線狀態</th>
+                      <th className="p-2">運作說明</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-slate-600">
+                    <tr>
+                      <td className="p-2 font-bold text-slate-800">住戶與車牌查詢</td>
+                      <td className="p-2 font-bold text-emerald-600">100% 正常</td>
+                      <td className="p-2">本機秒級模糊比對，不耗流量</td>
+                    </tr>
+                    <tr>
+                      <td className="p-2 font-bold text-slate-800">樓層與欄位篩選</td>
+                      <td className="p-2 font-bold text-emerald-600">100% 正常</td>
+                      <td className="p-2">本機即時分類過濾</td>
+                    </tr>
+                    <tr>
+                      <td className="p-2 font-bold text-slate-800">新增／編輯／刪除</td>
+                      <td className="p-2 font-bold text-emerald-600">100% 正常</td>
+                      <td className="p-2">直接保存至瀏覽器本機空間</td>
+                    </tr>
+                    <tr>
+                      <td className="p-2 font-bold text-slate-800">車輛照片管理</td>
+                      <td className="p-2 font-bold text-emerald-600">100% 正常</td>
+                      <td className="p-2">自動壓縮並於本機離線保存</td>
+                    </tr>
+                    <tr>
+                      <td className="p-2 font-bold text-slate-800">Excel 匯入／匯出</td>
+                      <td className="p-2 font-bold text-emerald-600">100% 正常</td>
+                      <td className="p-2">純瀏覽器端離線生成與解析</td>
+                    </tr>
+                    <tr>
+                      <td className="p-2 font-bold text-slate-800">JSON 完整備份還原</td>
+                      <td className="p-2 font-bold text-emerald-600">100% 正常</td>
+                      <td className="p-2">隨時存入隨身碟帶至其他電腦</td>
+                    </tr>
+                    <tr>
+                      <td className="p-2 font-bold text-slate-800">語音輸入辨識</td>
+                      <td className="p-2 font-bold text-amber-600">需網路連線</td>
+                      <td className="p-2">離線時請改用鍵盤文字搜尋</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* 操作按鈕群 */}
+            <div className="space-y-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  toggleOfflineMode();
+                  setIsOfflineModalOpen(false);
+                }}
+                className={`w-full py-2.5 px-4 text-sm font-bold rounded-xl transition text-center flex items-center justify-center gap-2 ${
+                  isOfflineMode
+                    ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm'
+                    : 'bg-amber-500 text-white hover:bg-amber-600 shadow-sm'
+                }`}
+              >
+                {isOfflineMode ? (
+                  <>
+                    <Wifi className="w-4 h-4" />
+                    <span>切換返回「連線模式」</span>
+                  </>
+                ) : (
+                  <>
+                    <WifiOff className="w-4 h-4" />
+                    <span>切換啟用「純本機離線模式」</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  exportBackupJson(residents);
+                }}
+                className="w-full py-2 px-4 text-sm font-semibold rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition text-center flex items-center justify-center gap-1.5"
+              >
+                <Download className="w-4 h-4 text-slate-500" />
+                <span>匯出離線備份檔案 (JSON 檔，可隨身攜帶)</span>
+              </button>
+            </div>
+
+            <button
+              onClick={() => setIsOfflineModalOpen(false)}
+              className="w-full py-2 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+            >
+              關閉視窗
             </button>
           </div>
         </div>

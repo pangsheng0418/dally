@@ -1,0 +1,17 @@
+{
+  "name": "住戶管理 - 車牌智慧對照系統",
+  "short_name": "住戶車牌管理",
+  "description": "支援離線使用之住戶代號、成員姓名與車牌號碼智慧對照管理系統",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f8fafc",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+}
