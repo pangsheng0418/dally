@@ -278,39 +278,133 @@ export const exportToExcel = (residents) => {
   }
 };
 
-// 完整備份所有資料（包含所有照片原始檔案，無字數限制）
+// 完整備份所有資料（使用 Blob 物件生成，支援大型備份與全部照片，無瀏覽器 URL 長度限制）
 export const exportBackupJson = (residents) => {
   try {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(residents, null, 2));
+    const jsonString = JSON.stringify(residents, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
     const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", `住戶完整備份(含照片)_${new Date().toISOString().slice(0, 10)}.json`);
+    downloadAnchor.href = url;
+    downloadAnchor.download = `住戶完整備份(含照片)_${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
-    downloadAnchor.remove();
+    setTimeout(() => {
+      document.body.removeChild(downloadAnchor);
+      URL.revokeObjectURL(url);
+    }, 200);
   } catch (err) {
-    alert('備份失敗：' + err.message);
+    console.error('備份失敗:', err);
+    alert('備份失敗：' + (err.message || '未知錯誤'));
   }
 };
 
-// 還原完整備份（含照片）
+// 還原完整備份（高相容性，自動去除 UTF-8 BOM，相容陣列與物件包裹格式）
 export const importBackupJson = (file) => {
   return new Promise((resolve, reject) => {
+    if (!file) {
+      reject(new Error('未選擇任何檔案'));
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const parsed = JSON.parse(e.target.result);
-        if (Array.isArray(parsed)) {
-          resolve(parsed);
-        } else {
-          reject(new Error('備份檔案格式不正確'));
+        let text = e.target?.result || '';
+        // 1. 去除 Windows Notepad 可能產生的 UTF-8 BOM (\uFEFF) 與前後空白
+        text = text.replace(/^\uFEFF/, '').trim();
+        if (!text) {
+          throw new Error('檔案內容為空，無法進行還原');
         }
+
+        // 2. 解析 JSON
+        let parsed;
+        try {
+          parsed = JSON.parse(text);
+        } catch (jsonErr) {
+          throw new Error(`JSON 檔案格式錯誤，可能下載不完整或已損毀（詳細: ${jsonErr.message}）`);
+        }
+
+        // 3. 彈性提取資料陣列（支援直接陣列，或包裝在 residents, data, list 等屬性）
+        let list = null;
+        if (Array.isArray(parsed)) {
+          list = parsed;
+        } else if (parsed && typeof parsed === 'object') {
+          list = parsed.residents || parsed.data || parsed.list || parsed.backup || parsed.items || Object.values(parsed).find(Array.isArray);
+        }
+
+        if (!list || !Array.isArray(list) || list.length === 0) {
+          throw new Error('備份檔案中未找到有效的住戶資料陣列');
+        }
+
+        // 4. 資料標準化與規格補全
+        const validated = list.map((r, idx) => {
+          const unit = String(r.unit || r['住戶代號'] || r['房號'] || r['住戶'] || `戶號-${idx + 1}`).trim();
+          const floor = String(r.floor || r['樓層'] || inferFloor(unit)).trim();
+
+          let members = [];
+          if (Array.isArray(r.members)) {
+            members = r.members.map(String).filter(Boolean);
+          } else if (typeof r.members === 'string') {
+            members = r.members.split(/[,、/，\s]+/).filter(Boolean);
+          } else if (typeof r['成員姓名'] === 'string') {
+            members = r['成員姓名'].split(/[,、/，\s]+/).filter(Boolean);
+          }
+
+          let plates = [];
+          if (Array.isArray(r.plates)) {
+            plates = r.plates.map(p => String(p).toUpperCase().replace(/\s+/g, '')).filter(Boolean);
+          } else if (typeof r.plates === 'string') {
+            plates = r.plates.split(/[,、/，\s]+/).map(p => p.toUpperCase().replace(/\s+/g, '')).filter(Boolean);
+          } else if (typeof r['車牌號碼'] === 'string') {
+            plates = r['車牌號碼'].split(/[,、/，\s]+/).map(p => p.toUpperCase().replace(/\s+/g, '')).filter(Boolean);
+          }
+
+          let parkingSlots = [];
+          if (Array.isArray(r.parkingSlots)) {
+            parkingSlots = r.parkingSlots.map(String).filter(Boolean);
+          } else if (typeof r.parkingSlots === 'string') {
+            parkingSlots = r.parkingSlots.split(/[,、/，\s]+/).filter(Boolean);
+          } else if (typeof r['車位編號'] === 'string') {
+            parkingSlots = r['車位編號'].split(/[,、/，\s]+/).filter(Boolean);
+          }
+
+          let carPhotos = [];
+          if (Array.isArray(r.carPhotos)) {
+            carPhotos = r.carPhotos.map(p => (p && typeof p === 'string' ? p : ''));
+          } else if (typeof r.carPhotos === 'string' && r.carPhotos) {
+            carPhotos = r.carPhotos.split('|');
+          } else if (typeof r['車輛照片'] === 'string' && r['車輛照片']) {
+            carPhotos = r['車輛照片'].split('|').filter(p => p.includes('data:image'));
+          }
+
+          return {
+            id: r.id || `resident-${Date.now()}-${idx}`,
+            unit,
+            floor,
+            members,
+            plates,
+            parkingSlots,
+            carPhotos,
+            note: String(r.note || r['備註'] || '')
+          };
+        }).filter(r => r.unit);
+
+        if (validated.length === 0) {
+          throw new Error('備份檔案中沒有找到有效的住戶資料');
+        }
+
+        resolve(validated);
       } catch (err) {
         reject(err);
       }
     };
-    reader.onerror = reject;
-    reader.readAsText(file);
+
+    reader.onerror = () => {
+      reject(new Error('讀取檔案時發生錯誤，請重新選取'));
+    };
+
+    reader.readAsText(file, 'utf-8');
   });
 };
 

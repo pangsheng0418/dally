@@ -305,7 +305,7 @@ export default function App() {
 
   // 還原完整備份（含照片）
   const handleBackupImport = async (e) => {
-    const file = e.target.files[0];
+    const file = e.target.files && e.target.files[0];
     if (!file) return;
     try {
       const data = await importBackupJson(file);
@@ -314,12 +314,20 @@ export default function App() {
         floor: r.floor || inferFloor(r.unit)
       }));
       setResidents(withFloor);
-      alert(`成功還原 ${data.length} 筆住戶完整資料（含所有照片）！`);
+      try {
+        localStorage.setItem('dali_residents', JSON.stringify(withFloor));
+      } catch (storageErr) {
+        console.warn('LocalStorage 儲存提醒:', storageErr);
+      }
+      alert(`成功還原 ${withFloor.length} 筆住戶完整資料（含所有車輛照片）！`);
       setIsClearModalOpen(false);
+      setIsOfflineModalOpen(false);
     } catch (err) {
-      alert('還原備份失敗：' + err.message);
+      console.error('還原備份失敗:', err);
+      alert('還原備份失敗：' + (err.message || '未知錯誤'));
+    } finally {
+      if (e.target) e.target.value = '';
     }
-    e.target.value = '';
   };
 
   const filteredResidents = filterResidents(residents, searchQuery);
@@ -441,6 +449,13 @@ export default function App() {
               ref={fileInputRef}
               onChange={handleExcelImport}
               accept=".xlsx,.xls"
+              className="hidden"
+            />
+            <input
+              type="file"
+              ref={backupInputRef}
+              onChange={handleBackupImport}
+              accept=".json,application/json"
               className="hidden"
             />
 
@@ -940,13 +955,6 @@ export default function App() {
                 <span>匯入還原完整備份 (JSON 檔)</span>
                 <Upload className="w-4 h-4 text-emerald-500" />
               </button>
-              <input
-                type="file"
-                ref={backupInputRef}
-                onChange={handleBackupImport}
-                accept=".json"
-                className="hidden"
-              />
               <button
                 onClick={() => {
                   setResidents(initialMockResidents);
@@ -1110,16 +1118,26 @@ export default function App() {
                 )}
               </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  exportBackupJson(residents);
-                }}
-                className="w-full py-2 px-4 text-sm font-semibold rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition text-center flex items-center justify-center gap-1.5"
-              >
-                <Download className="w-4 h-4 text-slate-500" />
-                <span>匯出離線備份檔案 (JSON 檔，可隨身攜帶)</span>
-              </button>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    exportBackupJson(residents);
+                  }}
+                  className="py-2.5 px-3 text-sm font-semibold rounded-xl bg-slate-100 text-slate-700 hover:bg-slate-200 transition text-center flex items-center justify-center gap-1.5"
+                >
+                  <Download className="w-4 h-4 text-slate-500" />
+                  <span>完整備份所有資料 (JSON)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => backupInputRef.current?.click()}
+                  className="py-2.5 px-3 text-sm font-semibold rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition text-center flex items-center justify-center gap-1.5"
+                >
+                  <Upload className="w-4 h-4 text-emerald-600" />
+                  <span>匯入還原備份資料 (JSON)</span>
+                </button>
+              </div>
             </div>
 
             <button
