@@ -257,10 +257,13 @@ export default function App() {
     }
   };
 
-  // Excel 匯入
+  // Excel 匯入（同時智慧相容若誤選為 .json 完整備份檔）
   const handleExcelImport = async (e) => {
-    const file = e.target.files[0];
+    const file = e.target.files && e.target.files[0];
     if (!file) return;
+    if (file.name && file.name.toLowerCase().endsWith('.json')) {
+      return handleBackupImport(e);
+    }
     try {
       const parsed = await parseExcelFile(file);
       if (parsed.length === 0) {
@@ -439,7 +442,7 @@ export default function App() {
             <button
               onClick={() => fileInputRef.current?.click()}
               className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 text-sm font-bold rounded-xl bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm transition"
-              title="匯入 Excel"
+              title="匯入 Excel 或 JSON 完整備份檔"
             >
               <Upload className="w-4 h-4" />
               <span>匯入</span>
@@ -448,14 +451,12 @@ export default function App() {
               type="file"
               ref={fileInputRef}
               onChange={handleExcelImport}
-              accept=".xlsx,.xls"
               className="hidden"
             />
             <input
               type="file"
               ref={backupInputRef}
               onChange={handleBackupImport}
-              accept=".json,application/json"
               className="hidden"
             />
 
