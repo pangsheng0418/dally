@@ -1,5 +1,97 @@
 import * as XLSX from 'xlsx';
 
+// IndexedDB 大容量本機資料庫（突破瀏覽器 LocalStorage 5MB 上限，可存上百MB照片與住戶資料）
+const DB_NAME = 'DaliPalaceDB';
+const DB_VERSION = 1;
+const STORE_NAME = 'app_data';
+const RESIDENTS_KEY = 'dali_residents';
+
+const openResidentsDB = () => {
+  return new Promise((resolve, reject) => {
+    if (typeof window === 'undefined' || !window.indexedDB) {
+      reject(new Error('IndexedDB not supported'));
+      return;
+    }
+    const request = window.indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+};
+
+// 儲存住戶資料（雙重備援：IndexedDB 大容量為主，LocalStorage 為輔）
+export const saveResidentsToStorage = async (residents) => {
+  // 1. 優先寫入 IndexedDB（無 5MB 容量限制，含大量照片也能完整保存）
+  try {
+    const db = await openResidentsDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      const req = store.put(residents, RESIDENTS_KEY);
+      req.onsuccess = () => resolve(true);
+      req.onerror = () => reject(req.error);
+      tx.oncomplete = () => db.close();
+    });
+  } catch (idbErr) {
+    console.warn('IndexedDB 寫入提醒:', idbErr);
+  }
+
+  // 2. 同步嘗試寫入 LocalStorage（若超過 5MB 則自動保存不含大圖的輕量文字索引，避免整個被瀏覽器拒絕）
+  try {
+    localStorage.setItem(RESIDENTS_KEY, JSON.stringify(residents));
+  } catch (lsErr) {
+    try {
+      const lightVersion = residents.map(r => ({
+        ...r,
+        carPhotos: []
+      }));
+      localStorage.setItem(RESIDENTS_KEY, JSON.stringify(lightVersion));
+    } catch (e) {
+      // 忽略極端容量不足
+    }
+  }
+};
+
+// 讀取住戶資料（優先從 IndexedDB 讀取完整含照片資料，若無則從 LocalStorage 讀取）
+export const loadResidentsFromStorage = async () => {
+  try {
+    const db = await openResidentsDB();
+    const idbData = await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const store = tx.objectStore(STORE_NAME);
+      const req = store.get(RESIDENTS_KEY);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+      tx.oncomplete = () => db.close();
+    });
+
+    if (Array.isArray(idbData)) {
+      return idbData;
+    }
+  } catch (idbErr) {
+    console.warn('IndexedDB 讀取提醒:', idbErr);
+  }
+
+  try {
+    const saved = localStorage.getItem(RESIDENTS_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+    }
+  } catch (lsErr) {
+    console.error(lsErr);
+  }
+
+  return null;
+};
+
 // 自動從住戶代號推算樓層（例如：A棟-12F-1 -> 12F，B棟-05F-2 -> 5F）
 export const inferFloor = (unit) => {
   if (!unit) return '';

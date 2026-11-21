@@ -8,7 +8,8 @@ import { initialMockResidents } from './mockData';
 import {
   filterResidents, formatSpeechText, parseExcelFile,
   exportToExcel, downloadTemplate, compressImage,
-  exportBackupJson, importBackupJson, inferFloor, parseFieldQuery
+  exportBackupJson, importBackupJson, inferFloor, parseFieldQuery,
+  saveResidentsToStorage, loadResidentsFromStorage
 } from './utils';
 
 export default function App() {
@@ -17,7 +18,7 @@ export default function App() {
       const saved = localStorage.getItem('dali_residents');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
+        if (Array.isArray(parsed)) {
           return parsed.map(r => ({
             ...r,
             floor: r.floor || inferFloor(r.unit)
@@ -29,6 +30,29 @@ export default function App() {
     }
     return initialMockResidents;
   });
+
+  // 是否已完成從 IndexedDB 大容量資料庫讀取初始化（防止初始化前覆寫資料庫）
+  const [isStorageLoaded, setIsStorageLoaded] = useState(false);
+
+  // 啟動時從 IndexedDB 載入完整住戶與照片資料（突破 LocalStorage 5MB 限制）
+  useEffect(() => {
+    let mounted = true;
+    loadResidentsFromStorage().then((loaded) => {
+      if (!mounted) return;
+      if (Array.isArray(loaded)) {
+        setResidents(
+          loaded.map(r => ({
+            ...r,
+            floor: r.floor || inferFloor(r.unit)
+          }))
+        );
+      }
+      setIsStorageLoaded(true);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isListening, setIsListening] = useState(false);
@@ -101,14 +125,11 @@ export default function App() {
   const backupInputRef = useRef(null);
   const recognitionRef = useRef(null);
 
-  // 儲存至 LocalStorage
+  // 儲存至 IndexedDB 大容量資料庫與 LocalStorage（僅在初始讀取完成後才自動同步）
   useEffect(() => {
-    try {
-      localStorage.setItem('dali_residents', JSON.stringify(residents));
-    } catch (e) {
-      console.warn('LocalStorage 儲存空間提醒：', e);
-    }
-  }, [residents]);
+    if (!isStorageLoaded) return;
+    saveResidentsToStorage(residents);
+  }, [residents, isStorageLoaded]);
 
   // 初始化語音辨識
   useEffect(() => {
@@ -317,11 +338,8 @@ export default function App() {
         floor: r.floor || inferFloor(r.unit)
       }));
       setResidents(withFloor);
-      try {
-        localStorage.setItem('dali_residents', JSON.stringify(withFloor));
-      } catch (storageErr) {
-        console.warn('LocalStorage 儲存提醒:', storageErr);
-      }
+      setIsStorageLoaded(true);
+      await saveResidentsToStorage(withFloor);
       alert(`成功還原 ${withFloor.length} 筆住戶完整資料（含所有車輛照片）！`);
       setIsClearModalOpen(false);
       setIsOfflineModalOpen(false);
